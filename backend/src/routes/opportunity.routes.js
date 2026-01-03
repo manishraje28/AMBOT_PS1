@@ -111,13 +111,71 @@ router.post('/:id/apply', authenticate, studentOnly, asyncHandler(async (req, re
   const application = await opportunityService.applyForOpportunity(
     req.params.id,
     req.user.id,
-    { coverNote, resumeUrl }
+    { coverNote, resumeUrl },
+    req.app
   );
 
   res.status(201).json({
     success: true,
     message: 'Application submitted successfully',
     data: application
+  });
+}));
+
+// GET /api/opportunities/:id/applications - Get applications for an opportunity (alumni only)
+router.get('/:id/applications', authenticate, alumniOnly, validatePagination, asyncHandler(async (req, res) => {
+  const { page, limit } = req.query;
+  
+  console.log('Getting applications for opportunity:', req.params.id, 'by user:', req.user.id);
+
+  const result = await opportunityService.getOpportunityApplications(
+    req.params.id,
+    req.user.id,
+    { page: parseInt(page) || 1, limit: parseInt(limit) || 10 }
+  );
+  
+  console.log('Found applications:', result.applications?.length || 0);
+
+  res.json({
+    success: true,
+    data: result.applications,
+    pagination: result.pagination
+  });
+}));
+
+// PUT /api/opportunities/applications/:applicationId/status - Update application status (alumni only)
+router.put('/applications/:applicationId/status', authenticate, alumniOnly, asyncHandler(async (req, res) => {
+  const { status } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ success: false, error: 'Status is required' });
+  }
+
+  const result = await opportunityService.updateApplicationStatus(
+    req.params.applicationId,
+    req.user.id,
+    status,
+    req.app
+  );
+
+  res.json({
+    success: true,
+    message: 'Application status updated successfully',
+    data: result
+  });
+}));
+
+// DELETE /api/opportunities/applications/:applicationId - Withdraw application (student only)
+router.delete('/applications/:applicationId', authenticate, studentOnly, asyncHandler(async (req, res) => {
+  const result = await opportunityService.withdrawApplication(
+    req.params.applicationId,
+    req.user.id
+  );
+
+  res.json({
+    success: true,
+    message: 'Application withdrawn successfully',
+    data: result
   });
 }));
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
   ArrowLeft,
@@ -15,10 +15,35 @@ import {
   MapPin,
   User,
   Send,
+  Users,
+  CheckCircle,
+  XCircle,
+  Star,
+  AlertCircle,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { formatDate, getOpportunityTypeColor, getAvatarUrl } from '@/lib/utils';
 import api from '@/lib/api';
+import { formatDistanceToNow } from 'date-fns';
+
+interface Application {
+  id: string;
+  status: string;
+  coverNote?: string;
+  resumeUrl?: string;
+  createdAt: string;
+  student: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    fullName: string;
+    email: string;
+    avatarUrl?: string;
+    major?: string;
+    graduationYear?: number;
+    skills: string[];
+  };
+}
 
 export default function OpportunityDetailPage() {
   const params = useParams();
@@ -30,13 +55,46 @@ export default function OpportunityDetailPage() {
   const [hasApplied, setHasApplied] = useState(false);
   const [applicationMessage, setApplicationMessage] = useState('');
   const [showApplicationForm, setShowApplicationForm] = useState(false);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [loadingApplications, setLoadingApplications] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
   const isStudent = user?.role === 'student';
-  const isOwner = opportunity?.postedBy === user?.id;
+  const isOwner = user?.role === 'alumni' && (opportunity?.alumni?.id === user?.id || opportunity?.alumniId === user?.id);
 
   useEffect(() => {
     fetchOpportunity();
   }, [params.id]);
+
+  // Fetch applications when user is alumni and owns this opportunity
+  useEffect(() => {
+    const checkAndFetchApplications = async () => {
+      console.log('checkAndFetchApplications called:', { 
+        userId: user?.id, 
+        userRole: user?.role,
+        opportunityId: opportunity?.id,
+        alumniId: opportunity?.alumni?.id,
+        opportunityAlumniId: opportunity?.alumniId
+      });
+      
+      if (!user || !opportunity) {
+        console.log('User or opportunity not ready yet');
+        return;
+      }
+      
+      // Check if current user is the alumni who posted this opportunity
+      const isAlumniOwner = user.role === 'alumni' && 
+        (opportunity.alumni?.id === user.id || opportunity.alumniId === user.id);
+      
+      console.log('Is alumni owner:', isAlumniOwner);
+      
+      if (isAlumniOwner) {
+        await fetchApplications();
+      }
+    };
+    
+    checkAndFetchApplications();
+  }, [user?.id, opportunity?.id]);
 
   const fetchOpportunity = async () => {
     try {
@@ -49,6 +107,35 @@ export default function OpportunityDetailPage() {
       toast.error('Failed to load opportunity');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchApplications = async () => {
+    setLoadingApplications(true);
+    try {
+      console.log('Fetching applications for opportunity:', params.id);
+      const response = await api.getOpportunityApplications(params.id as string);
+      console.log('Applications response:', response);
+      setApplications(response.data || response.applications || []);
+    } catch (error: any) {
+      console.error('Failed to fetch applications:', error.response?.data || error.message);
+      setApplications([]);
+    } finally {
+      setLoadingApplications(false);
+    }
+  };
+
+  const handleUpdateApplicationStatus = async (applicationId: string, status: string) => {
+    setUpdatingStatus(applicationId);
+    try {
+      await api.updateApplicationStatus(applicationId, status);
+      toast.success(`Application ${status}`);
+      // Refresh applications
+      fetchApplications();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to update status');
+    } finally {
+      setUpdatingStatus(null);
     }
   };
 
@@ -203,6 +290,159 @@ export default function OpportunityDetailPage() {
                   <span key={domain} className="tag-secondary">{domain}</span>
                 ))}
               </div>
+            </motion.div>
+          )}
+
+          {/* Applications Section (Alumni only) */}
+          {isOwner && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="card"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="font-display text-lg font-semibold text-text-primary flex items-center gap-2">
+                  <Users className="w-5 h-5 text-accent-primary" />
+                  Applications ({applications.length})
+                </h2>
+                <button
+                  onClick={fetchApplications}
+                  className="text-xs px-3 py-1 bg-accent-primary/20 text-accent-primary rounded hover:bg-accent-primary/30 transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {loadingApplications ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : applications.length === 0 ? (
+                <div className="text-center py-8 text-text-tertiary">
+                  <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>No applications yet</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <AnimatePresence>
+                    {applications.map((app) => (
+                      <motion.div
+                        key={app.id}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="p-4 bg-surface-100 rounded-xl border border-border"
+                      >
+                        <div className="flex items-start gap-4">
+                          {/* Avatar */}
+                          <img
+                            src={getAvatarUrl(app.student.firstName, app.student.lastName, app.student.avatarUrl)}
+                            alt={app.student.fullName}
+                            className="w-12 h-12 rounded-full"
+                          />
+
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <h3 className="font-semibold text-text-primary">{app.student.fullName}</h3>
+                              <span className={`text-xs px-2 py-1 rounded-full capitalize ${
+                                app.status === 'pending' || app.status === 'applied' ? 'bg-yellow-500/20 text-yellow-400' :
+                                app.status === 'reviewed' ? 'bg-blue-500/20 text-blue-400' :
+                                app.status === 'shortlisted' ? 'bg-purple-500/20 text-purple-400' :
+                                app.status === 'accepted' ? 'bg-green-500/20 text-green-400' :
+                                app.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
+                                'bg-gray-500/20 text-gray-400'
+                              }`}>
+                                {app.status}
+                              </span>
+                            </div>
+                            
+                            <p className="text-text-secondary text-sm mb-2">
+                              {app.student.email}
+                              {app.student.major && ` • ${app.student.major}`}
+                              {app.student.graduationYear && ` '${app.student.graduationYear.toString().slice(-2)}`}
+                            </p>
+
+                            {app.student.skills?.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-3">
+                                {app.student.skills.slice(0, 5).map((skill) => (
+                                  <span key={skill} className="text-xs px-2 py-0.5 bg-surface rounded text-text-tertiary">
+                                    {skill}
+                                  </span>
+                                ))}
+                                {app.student.skills.length > 5 && (
+                                  <span className="text-xs text-text-tertiary">+{app.student.skills.length - 5} more</span>
+                                )}
+                              </div>
+                            )}
+
+                            {app.coverNote && (
+                              <p className="text-text-secondary text-sm bg-surface p-3 rounded-lg mb-3">
+                                "{app.coverNote}"
+                              </p>
+                            )}
+
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-text-tertiary">
+                                Applied {formatDistanceToNow(new Date(app.createdAt), { addSuffix: true })}
+                              </span>
+
+                              {/* Action Buttons */}
+                              {(app.status === 'pending' || app.status === 'applied') && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleUpdateApplicationStatus(app.id, 'shortlisted')}
+                                    disabled={updatingStatus === app.id}
+                                    className="p-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 transition-colors"
+                                    title="Shortlist"
+                                  >
+                                    <Star className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleUpdateApplicationStatus(app.id, 'accepted')}
+                                    disabled={updatingStatus === app.id}
+                                    className="p-2 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors"
+                                    title="Accept"
+                                  >
+                                    <CheckCircle className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleUpdateApplicationStatus(app.id, 'rejected')}
+                                    disabled={updatingStatus === app.id}
+                                    className="p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
+                                    title="Reject"
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+
+                              {app.status === 'shortlisted' && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleUpdateApplicationStatus(app.id, 'accepted')}
+                                    disabled={updatingStatus === app.id}
+                                    className="px-3 py-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors text-sm"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() => handleUpdateApplicationStatus(app.id, 'rejected')}
+                                    disabled={updatingStatus === app.id}
+                                    className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors text-sm"
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
             </motion.div>
           )}
         </div>

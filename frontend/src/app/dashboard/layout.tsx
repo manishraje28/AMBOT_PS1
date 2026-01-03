@@ -3,7 +3,7 @@
 import { useEffect, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
   Users,
@@ -16,10 +16,15 @@ import {
   Menu,
   X,
   Plus,
+  MessageSquare,
+  Bell,
+  FileText,
 } from 'lucide-react';
-import { useAuthStore } from '@/lib/store';
+import { useAuthStore, useChatStore, useNotificationStore } from '@/lib/store';
+import { useSocket } from '@/lib/socket';
 import { getAvatarUrl } from '@/lib/utils';
 import { useState } from 'react';
+import { formatDistanceToNow } from 'date-fns';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -29,12 +34,30 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, profile, logout, checkAuth, isAuthenticated } = useAuthStore();
+  const { unreadCount: messageUnreadCount, loadUnreadCount: loadMessageUnreadCount } = useChatStore();
+  const { 
+    notifications, 
+    unreadCount: notificationUnreadCount, 
+    loadNotifications, 
+    loadUnreadCount: loadNotificationUnreadCount,
+    markAsRead,
+    markAllAsRead 
+  } = useNotificationStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
+  
+  // Initialize socket connection
+  useSocket();
 
   useEffect(() => {
     checkAuth().then((authenticated) => {
       if (!authenticated) {
         router.push('/login');
+      } else {
+        // Load unread counts
+        loadMessageUnreadCount();
+        loadNotificationUnreadCount();
+        loadNotifications();
       }
     });
   }, []);
@@ -53,12 +76,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     ? [
         { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
         { name: 'Find Mentors', href: '/dashboard/mentors', icon: Users },
+        { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
         { name: 'My Sessions', href: '/dashboard/sessions', icon: Calendar },
         { name: 'Opportunities', href: '/dashboard/opportunities', icon: Briefcase },
+        { name: 'My Applications', href: '/dashboard/applications', icon: FileText },
         { name: 'Profile', href: '/dashboard/profile', icon: User },
       ]
     : [
         { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+        { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
         { name: 'My Sessions', href: '/dashboard/sessions', icon: Calendar },
         { name: 'My Opportunities', href: '/dashboard/opportunities', icon: Briefcase },
         { name: 'Post Opportunity', href: '/dashboard/opportunities/new', icon: Plus },
@@ -166,6 +192,107 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <div className="flex-1" />
 
             <div className="flex items-center gap-4">
+              {/* Messages Icon */}
+              <Link
+                href="/dashboard/messages"
+                className="relative p-2 text-text-secondary hover:text-text-primary transition-colors rounded-lg hover:bg-surface-100"
+              >
+                <MessageSquare className="w-5 h-5" />
+                {messageUnreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-accent-primary text-surface text-xs font-bold rounded-full flex items-center justify-center">
+                    {messageUnreadCount > 9 ? '9+' : messageUnreadCount}
+                  </span>
+                )}
+              </Link>
+
+              {/* Notification Bell */}
+              <div className="relative">
+                <button
+                  onClick={() => setNotificationDropdownOpen(!notificationDropdownOpen)}
+                  className="relative p-2 text-text-secondary hover:text-text-primary transition-colors rounded-lg hover:bg-surface-100"
+                >
+                  <Bell className="w-5 h-5" />
+                  {notificationUnreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                      {notificationUnreadCount > 9 ? '9+' : notificationUnreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notification Dropdown */}
+                <AnimatePresence>
+                  {notificationDropdownOpen && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-40" 
+                        onClick={() => setNotificationDropdownOpen(false)} 
+                      />
+                      <motion.div
+                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                        className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-surface-50 border border-border rounded-xl shadow-2xl z-50"
+                      >
+                        <div className="p-4 border-b border-border flex items-center justify-between">
+                          <h3 className="font-semibold text-text-primary">Notifications</h3>
+                          {notificationUnreadCount > 0 && (
+                            <button
+                              onClick={() => markAllAsRead()}
+                              className="text-xs text-accent-primary hover:underline"
+                            >
+                              Mark all read
+                            </button>
+                          )}
+                        </div>
+                        
+                        {notifications.length === 0 ? (
+                          <div className="p-8 text-center text-text-tertiary">
+                            <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                            <p>No notifications yet</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-border">
+                            {notifications.slice(0, 10).map((notification) => (
+                              <div
+                                key={notification.id}
+                                onClick={() => {
+                                  markAsRead(notification.id);
+                                  setNotificationDropdownOpen(false);
+                                  // Navigate based on notification type
+                                  if (notification.type === 'application_received' && notification.data?.opportunityId) {
+                                    router.push(`/dashboard/opportunities/${notification.data.opportunityId}`);
+                                  } else if (notification.type === 'application_status' && notification.data?.opportunityId) {
+                                    router.push('/dashboard/applications');
+                                  } else if (notification.type === 'new_message' && notification.data?.conversationId) {
+                                    router.push('/dashboard/messages');
+                                  }
+                                }}
+                                className={`p-4 hover:bg-surface-100 cursor-pointer transition-colors ${
+                                  !notification.is_read ? 'bg-accent-primary/5' : ''
+                                }`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className={`w-2 h-2 rounded-full mt-2 ${
+                                    notification.is_read ? 'bg-transparent' : 'bg-accent-primary'
+                                  }`} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-text-primary">{notification.title}</p>
+                                    <p className="text-xs text-text-tertiary mt-1 line-clamp-2">{notification.message}</p>
+                                    <p className="text-xs text-text-tertiary mt-2">
+                                      {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+
               <Link
                 href="/dashboard/profile"
                 className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"

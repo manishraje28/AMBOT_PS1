@@ -1,5 +1,6 @@
 const { query } = require('../config/database');
 const { OPPORTUNITY_TYPES, ROLES, PAGINATION } = require('../config/constants');
+const notificationService = require('./notification.service');
 
 class OpportunityService {
   // Create opportunity (alumni only)
@@ -101,7 +102,7 @@ class OpportunityService {
         ${relevanceSelect}
        FROM opportunities o
        JOIN users u ON o.alumni_id = u.id
-       JOIN alumni_profiles ap ON u.id = ap.user_id
+       LEFT JOIN alumni_profiles ap ON u.id = ap.user_id
        ${whereClause}
        ${orderByClause}
        LIMIT $${paramCount} OFFSET $${paramCount + 1}`,
@@ -149,7 +150,7 @@ class OpportunityService {
         ap.linkedin_url as alumni_linkedin
        FROM opportunities o
        JOIN users u ON o.alumni_id = u.id
-       JOIN alumni_profiles ap ON u.id = ap.user_id
+       LEFT JOIN alumni_profiles ap ON u.id = ap.user_id
        WHERE o.id = $1`,
       [opportunityId]
     );
@@ -269,11 +270,15 @@ class OpportunityService {
   }
 
   // Apply for opportunity
-  async applyForOpportunity(opportunityId, studentId, { coverNote, resumeUrl }) {
+  async applyForOpportunity(opportunityId, studentId, { coverNote, resumeUrl }, app = null) {
     // Check opportunity exists and is active
     const opportunityResult = await query(
-      'SELECT id, deadline FROM opportunities WHERE id = $1 AND is_active = true',
-      [opportunityId]
+      `SELECT o.id, o.deadline, o.title, o.alumni_id, 
+              u.first_name as student_first_name, u.last_name as student_last_name
+       FROM opportunities o
+       JOIN users u ON u.id = $2
+       WHERE o.id = $1 AND o.is_active = true`,
+      [opportunityId, studentId]
     );
 
     if (opportunityResult.rows.length === 0) {
@@ -309,6 +314,30 @@ class OpportunityService {
       'UPDATE opportunities SET applications_count = applications_count + 1 WHERE id = $1',
       [opportunityId]
     );
+
+    // Send notification to alumni (non-blocking)
+    const studentName = `${opportunity.student_first_name} ${opportunity.student_last_name}`;
+    let notification = null;
+    try {
+      notification = await notificationService.notifyApplicationReceived(
+        opportunity.alumni_id,
+        studentName,
+        opportunity.title,
+        result.rows[0].id,
+        opportunityId
+      );
+
+      // Emit real-time notification if app is available
+      if (app && notification) {
+        const io = app.get('io');
+        if (io) {
+          io.to(`user:${opportunity.alumni_id}`).emit('notification', notification);
+        }
+      }
+    } catch (notificationError) {
+      console.error('Failed to send notification:', notificationError.message);
+      // Don't fail the application if notification fails
+    }
 
     return {
       applicationId: result.rows[0].id,
@@ -347,6 +376,163 @@ class OpportunityService {
         isActive: row.is_active
       }
     }));
+  }
+
+  // Withdraw application (student only)
+  async withdrawApplication(applicationId, studentId) {
+    // Verify ownership
+    const application = await query(
+      `SELECT oa.*, o.title, o.alumni_id 
+       FROM opportunity_applications oa
+       JOIN opportunities o ON oa.opportunity_id = o.id
+       WHERE oa.id = $1`,
+      [applicationId]
+    );
+
+    if (application.rows.length === 0) {
+      throw new Error('Application not found');
+    }
+
+    if (String(application.rows[0].student_id) !== String(studentId)) {
+      throw new Error('Not authorized to withdraw this application');
+    }
+
+    // Only allow withdrawal if status is pending or applied
+    const status = application.rows[0].status;
+    if (status !== 'pending' && status !== 'applied') {
+      throw new Error(`Cannot withdraw application with status: ${status}`);
+    }
+
+    // Delete the application
+    await query(
+      'DELETE FROM opportunity_applications WHERE id = $1',
+      [applicationId]
+    );
+
+    // Decrement applications count
+    await query(
+      'UPDATE opportunities SET applications_count = GREATEST(applications_count - 1, 0) WHERE id = $1',
+      [application.rows[0].opportunity_id]
+    );
+
+    return { success: true, message: 'Application withdrawn successfully' };
+  }
+
+  // Get applications for an opportunity (alumni only)
+  async getOpportunityApplications(opportunityId, alumniId, { page = 1, limit = 10 }) {
+    const offset = (page - 1) * limit;
+
+    // Verify ownership - check if this alumni owns this opportunity
+    const ownership = await query(
+      'SELECT id, alumni_id FROM opportunities WHERE id = $1',
+      [opportunityId]
+    );
+
+    if (ownership.rows.length === 0) {
+      throw new Error('Opportunity not found');
+    }
+
+    // Compare as strings to handle UUID comparison
+    if (String(ownership.rows[0].alumni_id) !== String(alumniId)) {
+      console.log('Authorization check failed:', {
+        opportunityAlumniId: ownership.rows[0].alumni_id,
+        requestingUserId: alumniId
+      });
+      throw new Error('Not authorized to view applications for this opportunity');
+    }
+
+    const result = await query(
+      `SELECT 
+        oa.*,
+        u.first_name, u.last_name, u.email, u.avatar_url,
+        sp.major, sp.graduation_year, sp.skills
+       FROM opportunity_applications oa
+       JOIN users u ON oa.student_id = u.id
+       LEFT JOIN student_profiles sp ON u.id = sp.user_id
+       WHERE oa.opportunity_id = $1
+       ORDER BY oa.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [opportunityId, limit, offset]
+    );
+
+    const countResult = await query(
+      'SELECT COUNT(*) FROM opportunity_applications WHERE opportunity_id = $1',
+      [opportunityId]
+    );
+
+    return {
+      applications: result.rows.map(row => ({
+        id: row.id,
+        status: row.status,
+        coverNote: row.cover_note,
+        resumeUrl: row.resume_url,
+        createdAt: row.created_at,
+        student: {
+          id: row.student_id,
+          firstName: row.first_name,
+          lastName: row.last_name,
+          fullName: `${row.first_name} ${row.last_name}`,
+          email: row.email,
+          avatarUrl: row.avatar_url,
+          major: row.major,
+          graduationYear: row.graduation_year,
+          skills: row.skills || []
+        }
+      })),
+      pagination: {
+        total: parseInt(countResult.rows[0].count),
+        page,
+        limit,
+        pages: Math.ceil(parseInt(countResult.rows[0].count) / limit)
+      }
+    };
+  }
+
+  // Update application status (alumni only)
+  async updateApplicationStatus(applicationId, alumniId, status, app = null) {
+    const validStatuses = ['pending', 'reviewed', 'shortlisted', 'rejected', 'accepted'];
+    if (!validStatuses.includes(status)) {
+      throw new Error(`Invalid status. Must be one of: ${validStatuses.join(', ')}`);
+    }
+
+    // Verify alumni owns the opportunity
+    const appResult = await query(
+      `SELECT oa.id, oa.student_id, o.title, o.alumni_id, o.id as opportunity_id
+       FROM opportunity_applications oa
+       JOIN opportunities o ON oa.opportunity_id = o.id
+       WHERE oa.id = $1 AND o.alumni_id = $2`,
+      [applicationId, alumniId]
+    );
+
+    if (appResult.rows.length === 0) {
+      throw new Error('Application not found or not authorized');
+    }
+
+    const application = appResult.rows[0];
+
+    // Update status
+    await query(
+      'UPDATE opportunity_applications SET status = $1 WHERE id = $2',
+      [status, applicationId]
+    );
+
+    // Notify student about status change
+    const notification = await notificationService.notifyApplicationStatusChange(
+      application.student_id,
+      status,
+      application.title,
+      application.opportunity_id
+    );
+
+    // Emit real-time notification
+    if (app) {
+      const io = app.get('io');
+      if (io) {
+        io.to(`user:${application.student_id}`).emit('notification', notification);
+      }
+    }
+
+    return { success: true, status };
   }
 
   // Format opportunity for response

@@ -16,8 +16,9 @@ import {
   MapPin,
   Star,
   MessageCircle,
+  MessageSquare,
 } from 'lucide-react';
-import { useAuthStore } from '@/lib/store';
+import { useAuthStore, useChatStore } from '@/lib/store';
 import { getAvatarUrl, formatDate } from '@/lib/utils';
 import api from '@/lib/api';
 
@@ -30,6 +31,7 @@ export default function MentorDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuthStore();
+  const { createConversation } = useChatStore();
   const [mentor, setMentor] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [slots, setSlots] = useState<any[]>([]);
@@ -38,6 +40,7 @@ export default function MentorDetailPage() {
   const [notes, setNotes] = useState('');
   const [booking, setBooking] = useState(false);
   const [showBookingFlow, setShowBookingFlow] = useState(false);
+  const [startingChat, setStartingChat] = useState(false);
 
   useEffect(() => {
     fetchMentor();
@@ -93,6 +96,19 @@ export default function MentorDetailPage() {
       toast.error(error.response?.data?.error || 'Failed to book session');
     } finally {
       setBooking(false);
+    }
+  };
+
+  const handleStartChat = async () => {
+    setStartingChat(true);
+    try {
+      await createConversation(mentor.id);
+      toast.success('Chat started!');
+      router.push('/dashboard/messages');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to start chat');
+    } finally {
+      setStartingChat(false);
     }
   };
 
@@ -294,6 +310,28 @@ export default function MentorDetailPage() {
                     This mentor hasn't set up scheduling yet.
                   </p>
                 )}
+
+                {/* Send Message Button */}
+                <button
+                  onClick={handleStartChat}
+                  disabled={startingChat}
+                  className="btn-secondary w-full mt-3"
+                >
+                  {startingChat ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Starting chat...
+                    </span>
+                  ) : (
+                    <>
+                      <MessageSquare className="w-4 h-4" />
+                      Send Message
+                    </>
+                  )}
+                </button>
               </>
             ) : (
               <div className="space-y-4">

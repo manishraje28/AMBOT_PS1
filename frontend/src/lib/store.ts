@@ -436,3 +436,239 @@ export const useOpportunitiesStore = create<OpportunitiesState>((set, get) => ({
     }
   },
 }));
+
+// Chat store
+export interface Conversation {
+  id: string;
+  participant_one: string;
+  participant_two: string;
+  other_user_id: string;
+  other_first_name: string;
+  other_last_name: string;
+  other_avatar_url?: string;
+  other_role: 'student' | 'alumni';
+  last_message?: string;
+  last_message_at: string;
+  unread_count: number;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  is_read: boolean;
+  created_at: string;
+  sender_first_name: string;
+  sender_last_name: string;
+  sender_avatar_url?: string;
+}
+
+interface ChatState {
+  conversations: Conversation[];
+  messages: Record<string, Message[]>;
+  activeConversation: string | null;
+  unreadCount: number;
+  isLoading: boolean;
+  error: string | null;
+
+  loadConversations: () => Promise<void>;
+  loadMessages: (conversationId: string) => Promise<void>;
+  setActiveConversation: (conversationId: string | null) => void;
+  addMessage: (conversationId: string, message: Message) => void;
+  markAsRead: (conversationId: string) => Promise<void>;
+  loadUnreadCount: () => Promise<void>;
+  createConversation: (userId: string) => Promise<Conversation>;
+}
+
+export const useChatStore = create<ChatState>((set, get) => ({
+  conversations: [],
+  messages: {},
+  activeConversation: null,
+  unreadCount: 0,
+  isLoading: false,
+  error: null,
+
+  loadConversations: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await api.getConversations();
+      set({ conversations: response.conversations, isLoading: false });
+    } catch (error: any) {
+      set({
+        error: error.response?.data?.error || 'Failed to load conversations',
+        isLoading: false,
+      });
+    }
+  },
+
+  loadMessages: async (conversationId) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await api.getMessages(conversationId);
+      set((state) => ({
+        messages: { ...state.messages, [conversationId]: response.messages },
+        isLoading: false,
+      }));
+    } catch (error: any) {
+      set({
+        error: error.response?.data?.error || 'Failed to load messages',
+        isLoading: false,
+      });
+    }
+  },
+
+  setActiveConversation: (conversationId) => {
+    set({ activeConversation: conversationId });
+  },
+
+  addMessage: (conversationId, message) => {
+    set((state) => {
+      const existingMessages = state.messages[conversationId] || [];
+      // Prevent duplicate messages by checking if message already exists
+      const messageExists = existingMessages.some(m => m.id === message.id);
+      if (messageExists) {
+        return state; // Don't add duplicate
+      }
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: [...existingMessages, message],
+        },
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId
+            ? { ...c, last_message: message.content, last_message_at: message.created_at }
+            : c
+        ),
+      };
+    });
+  },
+
+  markAsRead: async (conversationId) => {
+    try {
+      await api.markMessagesAsRead(conversationId);
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId ? { ...c, unread_count: 0 } : c
+        ),
+      }));
+      await get().loadUnreadCount();
+    } catch (error) {
+      console.error('Failed to mark as read:', error);
+    }
+  },
+
+  loadUnreadCount: async () => {
+    try {
+      const response = await api.getUnreadMessageCount();
+      set({ unreadCount: response.count });
+    } catch (error) {
+      console.error('Failed to load unread count:', error);
+    }
+  },
+
+  createConversation: async (userId) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await api.createConversation(userId);
+      await get().loadConversations();
+      set({ isLoading: false });
+      return response.conversation;
+    } catch (error: any) {
+      const message = error.response?.data?.error || 'Failed to create conversation';
+      set({ error: message, isLoading: false });
+      throw new Error(message);
+    }
+  },
+}));
+
+// Notification store
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  data?: Record<string, any>;
+  is_read: boolean;
+  created_at: string;
+}
+
+interface NotificationState {
+  notifications: Notification[];
+  unreadCount: number;
+  isLoading: boolean;
+  error: string | null;
+
+  loadNotifications: (unreadOnly?: boolean) => Promise<void>;
+  loadUnreadCount: () => Promise<void>;
+  markAsRead: (notificationId: string) => Promise<void>;
+  markAllAsRead: () => Promise<void>;
+  addNotification: (notification: Notification) => void;
+}
+
+export const useNotificationStore = create<NotificationState>((set, get) => ({
+  notifications: [],
+  unreadCount: 0,
+  isLoading: false,
+  error: null,
+
+  loadNotifications: async (unreadOnly = false) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await api.getNotifications({ unreadOnly });
+      set({
+        notifications: response.notifications,
+        unreadCount: response.unreadCount,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      set({
+        error: error.response?.data?.error || 'Failed to load notifications',
+        isLoading: false,
+      });
+    }
+  },
+
+  loadUnreadCount: async () => {
+    try {
+      const response = await api.getUnreadNotificationCount();
+      set({ unreadCount: response.count });
+    } catch (error) {
+      console.error('Failed to load unread count:', error);
+    }
+  },
+
+  markAsRead: async (notificationId) => {
+    try {
+      await api.markNotificationAsRead(notificationId);
+      set((state) => ({
+        notifications: state.notifications.map((n) =>
+          n.id === notificationId ? { ...n, is_read: true } : n
+        ),
+        unreadCount: Math.max(0, state.unreadCount - 1),
+      }));
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+    }
+  },
+
+  markAllAsRead: async () => {
+    try {
+      await api.markAllNotificationsAsRead();
+      set((state) => ({
+        notifications: state.notifications.map((n) => ({ ...n, is_read: true })),
+        unreadCount: 0,
+      }));
+    } catch (error) {
+      console.error('Failed to mark all as read:', error);
+    }
+  },
+
+  addNotification: (notification) => {
+    set((state) => ({
+      notifications: [notification, ...state.notifications],
+      unreadCount: state.unreadCount + 1,
+    }));
+  },
+}));

@@ -109,7 +109,7 @@ async function initializeDatabase() {
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
       student_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      status VARCHAR(20) DEFAULT 'applied' CHECK (status IN ('applied', 'reviewed', 'shortlisted', 'rejected', 'accepted')),
+      status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'reviewed', 'shortlisted', 'rejected', 'accepted')),
       cover_note TEXT,
       resume_url TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -126,6 +126,39 @@ async function initializeDatabase() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Conversations table for chat
+    CREATE TABLE IF NOT EXISTS conversations (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      participant_one UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      participant_two UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(participant_one, participant_two)
+    );
+
+    -- Messages table for chat
+    CREATE TABLE IF NOT EXISTS messages (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      is_read BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Notifications table
+    CREATE TABLE IF NOT EXISTS notifications (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type VARCHAR(50) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      message TEXT,
+      data JSONB DEFAULT '{}',
+      is_read BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Create indexes for performance
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -139,6 +172,18 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_mentorship_sessions_status ON mentorship_sessions(status);
     CREATE INDEX IF NOT EXISTS idx_matchmaking_cache_student_id ON matchmaking_cache(student_id);
     CREATE INDEX IF NOT EXISTS idx_matchmaking_cache_expires_at ON matchmaking_cache(expires_at);
+
+    -- Chat and notification indexes
+    CREATE INDEX IF NOT EXISTS idx_conversations_participant_one ON conversations(participant_one);
+    CREATE INDEX IF NOT EXISTS idx_conversations_participant_two ON conversations(participant_two);
+    CREATE INDEX IF NOT EXISTS idx_conversations_last_message ON conversations(last_message_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id, is_read) WHERE is_read = false;
+    CREATE INDEX IF NOT EXISTS idx_opportunity_applications_student ON opportunity_applications(student_id);
+    CREATE INDEX IF NOT EXISTS idx_opportunity_applications_opportunity ON opportunity_applications(opportunity_id);
 
     -- GIN indexes for array searches
     CREATE INDEX IF NOT EXISTS idx_student_skills ON student_profiles USING GIN(skills);

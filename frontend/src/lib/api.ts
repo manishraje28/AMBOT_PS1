@@ -200,6 +200,78 @@ class ApiClient {
     const response = await this.client.get('/opportunities/applications', { params });
     return response.data;
   }
+
+  async getOpportunityApplications(opportunityId: string, params?: { page?: number; limit?: number }) {
+    const response = await this.client.get(`/opportunities/${opportunityId}/applications`, { params });
+    return response.data;
+  }
+
+  async updateApplicationStatus(applicationId: string, status: string) {
+    const response = await this.client.put(`/opportunities/applications/${applicationId}/status`, { status });
+    return response.data;
+  }
+
+  async withdrawApplication(applicationId: string) {
+    const response = await this.client.delete(`/opportunities/applications/${applicationId}`);
+    return response.data;
+  }
+
+  // Chat endpoints
+  async getConversations() {
+    const response = await this.client.get('/chat/conversations');
+    return response.data;
+  }
+
+  async createConversation(userId: string) {
+    const response = await this.client.post('/chat/conversations', { userId });
+    return response.data;
+  }
+
+  async getMessages(conversationId: string, params?: { limit?: number; before?: string }) {
+    const response = await this.client.get(`/chat/conversations/${conversationId}/messages`, { params });
+    return response.data;
+  }
+
+  async sendMessage(conversationId: string, content: string) {
+    const response = await this.client.post(`/chat/conversations/${conversationId}/messages`, { content });
+    return response.data;
+  }
+
+  async markMessagesAsRead(conversationId: string) {
+    const response = await this.client.post(`/chat/conversations/${conversationId}/read`);
+    return response.data;
+  }
+
+  async getUnreadMessageCount() {
+    const response = await this.client.get('/chat/unread-count');
+    return response.data;
+  }
+
+  // Notification endpoints
+  async getNotifications(params?: { limit?: number; offset?: number; unreadOnly?: boolean }) {
+    const response = await this.client.get('/notifications', { params });
+    return response.data;
+  }
+
+  async getUnreadNotificationCount() {
+    const response = await this.client.get('/notifications/unread-count');
+    return response.data;
+  }
+
+  async markNotificationAsRead(notificationId: string) {
+    const response = await this.client.post(`/notifications/${notificationId}/read`);
+    return response.data;
+  }
+
+  async markAllNotificationsAsRead() {
+    const response = await this.client.post('/notifications/read-all');
+    return response.data;
+  }
+
+  async deleteNotification(notificationId: string) {
+    const response = await this.client.delete(`/notifications/${notificationId}`);
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

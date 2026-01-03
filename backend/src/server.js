@@ -4,22 +4,25 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const http = require('http');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 const authRoutes = require('./routes/auth.routes');
 const profileRoutes = require('./routes/profile.routes');
 const matchmakingRoutes = require('./routes/matchmaking.routes');
 const schedulingRoutes = require('./routes/scheduling.routes');
 const opportunityRoutes = require('./routes/opportunity.routes');
+const chatRoutes = require('./routes/chat.routes');
+const notificationRoutes = require('./routes/notification.routes');
 const { errorHandler, notFoundHandler } = require('./middleware/error.middleware');
 const { initializeDatabase } = require('./db/init');
+const chatService = require('./services/chat.service');
+const notificationService = require('./services/notification.service');
 
 const app = express();
 const server = http.createServer(app);
 
-// Security middleware
-app.use(helmet());
-
-// CORS configuration
+// Socket.IO setup
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
@@ -28,6 +31,116 @@ const allowedOrigins = [
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST']
+  }
+});
+
+// Store connected users
+const connectedUsers = new Map();
+
+// Socket.IO authentication middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error('Authentication required'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-super-secret-jwt-key');
+    socket.userId = decoded.userId;
+    next();
+  } catch (error) {
+    next(new Error('Invalid token'));
+  }
+});
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  const userId = socket.userId;
+  console.log(`📱 User ${userId} connected via WebSocket`);
+  
+  // Track connected user
+  connectedUsers.set(userId, socket.id);
+  
+  // Join user's personal room for notifications
+  socket.join(`user:${userId}`);
+
+  // Handle joining a conversation room
+  socket.on('join_conversation', (conversationId) => {
+    socket.join(`conversation:${conversationId}`);
+    console.log(`User ${userId} joined conversation ${conversationId}`);
+  });
+
+  // Handle leaving a conversation room
+  socket.on('leave_conversation', (conversationId) => {
+    socket.leave(`conversation:${conversationId}`);
+  });
+
+  // Handle sending a message
+  socket.on('send_message', async (data) => {
+    try {
+      const { conversationId, content } = data;
+      
+      // Save message to database
+      const message = await chatService.sendMessage(conversationId, userId, content);
+      
+      // Get recipient ID
+      const recipientId = await chatService.getRecipientId(conversationId, userId);
+      
+      // Emit to conversation room
+      io.to(`conversation:${conversationId}`).emit('new_message', message);
+      
+      // Emit notification to recipient if they're not in the conversation
+      const recipientSocketId = connectedUsers.get(recipientId);
+      if (recipientSocketId) {
+        io.to(`user:${recipientId}`).emit('message_notification', {
+          conversationId,
+          message
+        });
+      }
+    } catch (error) {
+      socket.emit('error', { message: error.message });
+    }
+  });
+
+  // Handle typing indicator
+  socket.on('typing_start', (conversationId) => {
+    socket.to(`conversation:${conversationId}`).emit('user_typing', { userId });
+  });
+
+  socket.on('typing_stop', (conversationId) => {
+    socket.to(`conversation:${conversationId}`).emit('user_stopped_typing', { userId });
+  });
+
+  // Handle marking messages as read
+  socket.on('mark_read', async (conversationId) => {
+    try {
+      await chatService.markAsRead(conversationId, userId);
+      socket.to(`conversation:${conversationId}`).emit('messages_read', { userId });
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  });
+
+  // Handle disconnect
+  socket.on('disconnect', () => {
+    console.log(`📴 User ${userId} disconnected`);
+    connectedUsers.delete(userId);
+  });
+});
+
+// Export io for use in other modules
+app.set('io', io);
+app.set('connectedUsers', connectedUsers);
+
+// Security middleware
+app.use(helmet());
+
+// CORS configuration for REST API
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or curl)
@@ -64,6 +177,8 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/matchmaking', matchmakingRoutes);
 app.use('/api/scheduling', schedulingRoutes);
 app.use('/api/opportunities', opportunityRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Error handling
 app.use(notFoundHandler);
@@ -78,8 +193,9 @@ async function startServer() {
     console.log('✅ Database initialized successfully');
     
     server.listen(PORT, () => {
-      console.log(`🚀 AMBOT Server running on port ${PORT}`);
+      console.log(`🚀 AlumNet Server running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔌 WebSocket server ready for connections`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
