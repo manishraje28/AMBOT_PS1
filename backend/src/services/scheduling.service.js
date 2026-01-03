@@ -2,15 +2,30 @@ const axios = require('axios');
 const { query, transaction } = require('../config/database');
 const { BOOKING_STATUS, ROLES } = require('../config/constants');
 
+// Cal.com API v1 base URL (v1 works with regular API keys for bookings)
+const CALCOM_API_V1_URL = 'https://api.cal.com/v1';
+// Cal.com API v2 for slots (some endpoints work with API keys)
+const CALCOM_API_V2_URL = 'https://api.cal.com/v2';
+const CAL_API_VERSION = '2024-08-13';
+
 class SchedulingService {
   constructor() {
-    this.calcomApiUrl = process.env.CALCOM_API_URL || 'https://api.cal.com/v1';
     this.calcomApiKey = process.env.CALCOM_API_KEY;
     this.n8nWebhookBaseUrl = process.env.N8N_WEBHOOK_BASE_URL;
+    
+    if (!this.calcomApiKey) {
+      console.warn('⚠️ CALCOM_API_KEY not configured - Cal.com direct integration will not work');
+    }
   }
 
   // Get available slots from Cal.com for a specific alumni
   async getAvailableSlots(alumniId, { startDate, endDate }) {
+    // Check if API key is configured
+    if (!this.calcomApiKey) {
+      console.error('Cal.com API key not configured');
+      return this.fetchSlotsViaN8n({ calcom_event_type_id: null }, startDate, endDate);
+    }
+    
     // Get alumni's Cal.com event type ID
     const alumniResult = await query(
       `SELECT ap.calcom_event_type_id, ap.calcom_username, u.first_name, u.last_name
@@ -31,21 +46,44 @@ class SchedulingService {
     }
 
     try {
-      // Fetch slots from Cal.com API
+      // Fetch slots from Cal.com API v1 (works with regular API keys)
+      console.log('Fetching Cal.com slots for eventTypeId:', alumni.calcom_event_type_id);
+      console.log('Date range:', startDate, 'to', endDate);
+      
       const response = await axios.get(
-        `${this.calcomApiUrl}/slots`,
+        `${CALCOM_API_V1_URL}/slots`,
         {
           params: {
+            apiKey: this.calcomApiKey,
             eventTypeId: alumni.calcom_event_type_id,
             startTime: startDate,
-            endTime: endDate
+            endTime: endDate,
+            timeZone: 'UTC'
           },
           headers: {
-            'Authorization': `Bearer ${this.calcomApiKey}`,
             'Content-Type': 'application/json'
           }
         }
       );
+      
+      console.log('Cal.com API response:', JSON.stringify(response.data, null, 2));
+      
+      // Transform v1 response format to our expected format
+      // v1 returns: { slots: { '2024-01-05': [{ time: '...' }] } }
+      const slotsData = response.data.slots || response.data.data || {};
+      const slots = [];
+      
+      // Convert the date-keyed object to an array of slots
+      for (const [date, dateSlots] of Object.entries(slotsData)) {
+        if (Array.isArray(dateSlots)) {
+          dateSlots.forEach(slot => {
+            slots.push({
+              time: slot.start || slot.time || slot,
+              date: date
+            });
+          });
+        }
+      }
 
       return {
         alumni: {
@@ -54,7 +92,7 @@ class SchedulingService {
           eventTypeId: alumni.calcom_event_type_id,
           username: alumni.calcom_username
         },
-        slots: response.data.slots || []
+        slots: slots
       };
     } catch (error) {
       console.error('Cal.com API error:', error.response?.data || error.message);
@@ -163,6 +201,9 @@ class SchedulingService {
       throw new Error('Failed to create booking. Please try again.');
     }
 
+    // Hardcoded Google Meet link for now (TODO: replace with dynamic meeting link)
+    const meetingLink = 'https://meet.google.com/dfs-ywam-mez';
+
     // Store session in database
     const session = await transaction(async (client) => {
       const sessionResult = await client.query(
@@ -178,7 +219,7 @@ class SchedulingService {
           alumni.calcom_event_type_id,
           slotTime,
           BOOKING_STATUS.CONFIRMED,
-          bookingResult.meetingLink || null,
+          meetingLink,
           notes
         ]
       );
@@ -195,7 +236,7 @@ class SchedulingService {
 
     return {
       session: this.formatSession(session),
-      meetingLink: bookingResult.meetingLink,
+      meetingLink: meetingLink,
       calendarEventCreated: !!bookingResult.calendarEventId
     };
   }
@@ -245,37 +286,70 @@ class SchedulingService {
     }
   }
 
-  // Direct Cal.com booking (fallback)
+  // Direct Cal.com booking using API v1 (works with regular API keys)
   async createBookingDirect({ student, alumni, slotTime, notes }) {
     try {
-      const response = await axios.post(
-        `${this.calcomApiUrl}/bookings`,
-        {
-          eventTypeId: parseInt(alumni.calcom_event_type_id),
-          start: slotTime,
-          responses: {
-            name: `${student.first_name} ${student.last_name}`,
-            email: student.email,
-            notes: notes || 'Mentorship session booked via AMBOT platform'
-          },
-          metadata: {
-            source: 'ambot_platform',
-            studentId: student.id,
-            alumniId: alumni.id
+      const startDate = new Date(slotTime);
+      
+      // Don't include 'end' - let Cal.com use the event type's configured duration
+      const bookingPayload = {
+        eventTypeId: parseInt(alumni.calcom_event_type_id),
+        start: startDate.toISOString(),
+        responses: {
+          name: `${student.first_name} ${student.last_name}`,
+          email: student.email,
+          location: {
+            value: 'integrations:daily',
+            optionValue: ''
           }
         },
+        timeZone: 'UTC',
+        language: 'en',
+        metadata: {
+          source: 'ambot_platform',
+          studentId: student.id,
+          alumniId: alumni.id,
+          notes: notes || 'Mentorship session booked via AMBOT platform'
+        }
+      };
+
+      console.log('Creating Cal.com booking with payload:', JSON.stringify(bookingPayload, null, 2));
+
+      const response = await axios.post(
+        `${CALCOM_API_V1_URL}/bookings`,
+        bookingPayload,
         {
+          params: {
+            apiKey: this.calcomApiKey
+          },
           headers: {
-            'Authorization': `Bearer ${this.calcomApiKey}`,
             'Content-Type': 'application/json'
           }
         }
       );
 
+      console.log('Cal.com booking response:', JSON.stringify(response.data, null, 2));
+
+      const booking = response.data.booking || response.data;
+      
+      // Extract meeting link from various possible fields in Cal.com response
+      let meetingLink = booking.meetingUrl || 
+                        booking.location || 
+                        booking.references?.find(ref => ref.type === 'daily_video')?.meetingUrl ||
+                        booking.metadata?.videoCallUrl;
+      
+      // If Cal.com provides a UID, we can construct a meeting link
+      if (!meetingLink && booking.uid) {
+        // The Cal.com video meeting is accessed via the booking page
+        meetingLink = `https://app.cal.com/video/${booking.uid}`;
+      }
+      
+      console.log('Meeting link extracted:', meetingLink);
+      
       return {
-        bookingId: response.data.id?.toString(),
-        meetingLink: response.data.meetingUrl || response.data.references?.find(r => r.type === 'google_calendar')?.meetingUrl,
-        calendarEventId: response.data.uid
+        bookingId: booking.id?.toString(),
+        meetingLink: meetingLink,
+        calendarEventId: booking.uid
       };
     } catch (error) {
       console.error('Cal.com booking error:', error.response?.data || error.message);
