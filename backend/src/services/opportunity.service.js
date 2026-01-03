@@ -1,0 +1,376 @@
+const { query } = require('../config/database');
+const { OPPORTUNITY_TYPES, ROLES, PAGINATION } = require('../config/constants');
+
+class OpportunityService {
+  // Create opportunity (alumni only)
+  async createOpportunity(alumniId, data) {
+    const {
+      title, description, type, company, location,
+      isRemote, requiredSkills, requiredDomains,
+      deadline, externalLink
+    } = data;
+
+    // Validate type
+    if (!Object.values(OPPORTUNITY_TYPES).includes(type)) {
+      throw new Error(`Invalid opportunity type. Must be one of: ${Object.values(OPPORTUNITY_TYPES).join(', ')}`);
+    }
+
+    const result = await query(
+      `INSERT INTO opportunities (
+        alumni_id, title, description, type, company, location,
+        is_remote, required_skills, required_domains, deadline, external_link
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING *`,
+      [
+        alumniId, title, description, type, company || null, location || null,
+        isRemote || false, requiredSkills || [], requiredDomains || [],
+        deadline || null, externalLink || null
+      ]
+    );
+
+    return this.formatOpportunity(result.rows[0]);
+  }
+
+  // Get opportunities with filtering and sorting
+  async getOpportunities({ 
+    page = 1, 
+    limit = 10, 
+    type, 
+    domains, 
+    skills,
+    isRemote,
+    studentId 
+  }) {
+    const offset = (page - 1) * limit;
+    
+    let whereClause = 'WHERE o.is_active = true';
+    const params = [];
+    let paramCount = 1;
+
+    // Filter by type
+    if (type) {
+      whereClause += ` AND o.type = $${paramCount++}`;
+      params.push(type);
+    }
+
+    // Filter by remote
+    if (isRemote !== undefined) {
+      whereClause += ` AND o.is_remote = $${paramCount++}`;
+      params.push(isRemote);
+    }
+
+    // Check deadline hasn't passed
+    whereClause += ` AND (o.deadline IS NULL OR o.deadline >= CURRENT_DATE)`;
+
+    // Build relevance scoring for personalization
+    let orderByClause = 'ORDER BY o.created_at DESC';
+    let relevanceSelect = '';
+
+    if (studentId) {
+      // Get student's profile for personalization
+      const studentResult = await query(
+        `SELECT skills, domains FROM student_profiles WHERE user_id = $1`,
+        [studentId]
+      );
+
+      if (studentResult.rows.length > 0) {
+        const studentSkills = studentResult.rows[0].skills || [];
+        const studentDomains = studentResult.rows[0].domains || [];
+
+        // Add relevance scoring
+        relevanceSelect = `,
+          (SELECT COUNT(*) FROM unnest(o.required_domains) d WHERE d = ANY($${paramCount})) * 3 +
+          (SELECT COUNT(*) FROM unnest(o.required_skills) s WHERE s = ANY($${paramCount + 1})) * 2
+          AS relevance_score`;
+        
+        params.push(studentDomains, studentSkills);
+        paramCount += 2;
+
+        orderByClause = 'ORDER BY relevance_score DESC, o.created_at DESC';
+      }
+    }
+
+    const result = await query(
+      `SELECT 
+        o.*,
+        u.first_name as alumni_first_name,
+        u.last_name as alumni_last_name,
+        u.avatar_url as alumni_avatar,
+        ap.company as alumni_company,
+        ap.job_title as alumni_job_title
+        ${relevanceSelect}
+       FROM opportunities o
+       JOIN users u ON o.alumni_id = u.id
+       JOIN alumni_profiles ap ON u.id = ap.user_id
+       ${whereClause}
+       ${orderByClause}
+       LIMIT $${paramCount} OFFSET $${paramCount + 1}`,
+      [...params, limit, offset]
+    );
+
+    const countResult = await query(
+      `SELECT COUNT(*) FROM opportunities o ${whereClause}`,
+      params.slice(0, type ? 1 : 0).concat(isRemote !== undefined ? [isRemote] : [])
+    );
+
+    return {
+      opportunities: result.rows.map(row => ({
+        ...this.formatOpportunity(row),
+        alumni: {
+          firstName: row.alumni_first_name,
+          lastName: row.alumni_last_name,
+          fullName: `${row.alumni_first_name} ${row.alumni_last_name}`,
+          avatarUrl: row.alumni_avatar,
+          company: row.alumni_company,
+          jobTitle: row.alumni_job_title
+        },
+        relevanceScore: row.relevance_score || 0
+      })),
+      pagination: {
+        total: parseInt(countResult.rows[0]?.count || 0),
+        page,
+        limit,
+        pages: Math.ceil(parseInt(countResult.rows[0]?.count || 0) / limit)
+      }
+    };
+  }
+
+  // Get single opportunity
+  async getOpportunityById(opportunityId, incrementViews = true) {
+    const result = await query(
+      `SELECT 
+        o.*,
+        u.first_name as alumni_first_name,
+        u.last_name as alumni_last_name,
+        u.avatar_url as alumni_avatar,
+        u.email as alumni_email,
+        ap.company as alumni_company,
+        ap.job_title as alumni_job_title,
+        ap.linkedin_url as alumni_linkedin
+       FROM opportunities o
+       JOIN users u ON o.alumni_id = u.id
+       JOIN alumni_profiles ap ON u.id = ap.user_id
+       WHERE o.id = $1`,
+      [opportunityId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error('Opportunity not found');
+    }
+
+    // Increment view count
+    if (incrementViews) {
+      await query(
+        'UPDATE opportunities SET views_count = views_count + 1 WHERE id = $1',
+        [opportunityId]
+      );
+    }
+
+    const row = result.rows[0];
+    return {
+      ...this.formatOpportunity(row),
+      alumni: {
+        id: row.alumni_id,
+        firstName: row.alumni_first_name,
+        lastName: row.alumni_last_name,
+        fullName: `${row.alumni_first_name} ${row.alumni_last_name}`,
+        avatarUrl: row.alumni_avatar,
+        email: row.alumni_email,
+        company: row.alumni_company,
+        jobTitle: row.alumni_job_title,
+        linkedinUrl: row.alumni_linkedin
+      }
+    };
+  }
+
+  // Get alumni's opportunities
+  async getAlumniOpportunities(alumniId, { page = 1, limit = 10 }) {
+    const offset = (page - 1) * limit;
+
+    const result = await query(
+      `SELECT * FROM opportunities
+       WHERE alumni_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [alumniId, limit, offset]
+    );
+
+    const countResult = await query(
+      'SELECT COUNT(*) FROM opportunities WHERE alumni_id = $1',
+      [alumniId]
+    );
+
+    return {
+      opportunities: result.rows.map(row => this.formatOpportunity(row)),
+      pagination: {
+        total: parseInt(countResult.rows[0].count),
+        page,
+        limit,
+        pages: Math.ceil(parseInt(countResult.rows[0].count) / limit)
+      }
+    };
+  }
+
+  // Update opportunity
+  async updateOpportunity(opportunityId, alumniId, data) {
+    const {
+      title, description, type, company, location,
+      isRemote, requiredSkills, requiredDomains,
+      deadline, externalLink, isActive
+    } = data;
+
+    // Verify ownership
+    const existing = await query(
+      'SELECT id FROM opportunities WHERE id = $1 AND alumni_id = $2',
+      [opportunityId, alumniId]
+    );
+
+    if (existing.rows.length === 0) {
+      throw new Error('Opportunity not found or not authorized');
+    }
+
+    const result = await query(
+      `UPDATE opportunities SET
+        title = COALESCE($1, title),
+        description = COALESCE($2, description),
+        type = COALESCE($3, type),
+        company = COALESCE($4, company),
+        location = COALESCE($5, location),
+        is_remote = COALESCE($6, is_remote),
+        required_skills = COALESCE($7, required_skills),
+        required_domains = COALESCE($8, required_domains),
+        deadline = COALESCE($9, deadline),
+        external_link = COALESCE($10, external_link),
+        is_active = COALESCE($11, is_active)
+       WHERE id = $12
+       RETURNING *`,
+      [
+        title, description, type, company, location,
+        isRemote, requiredSkills, requiredDomains,
+        deadline, externalLink, isActive, opportunityId
+      ]
+    );
+
+    return this.formatOpportunity(result.rows[0]);
+  }
+
+  // Delete opportunity
+  async deleteOpportunity(opportunityId, alumniId) {
+    const result = await query(
+      'DELETE FROM opportunities WHERE id = $1 AND alumni_id = $2 RETURNING id',
+      [opportunityId, alumniId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error('Opportunity not found or not authorized');
+    }
+
+    return { success: true };
+  }
+
+  // Apply for opportunity
+  async applyForOpportunity(opportunityId, studentId, { coverNote, resumeUrl }) {
+    // Check opportunity exists and is active
+    const opportunityResult = await query(
+      'SELECT id, deadline FROM opportunities WHERE id = $1 AND is_active = true',
+      [opportunityId]
+    );
+
+    if (opportunityResult.rows.length === 0) {
+      throw new Error('Opportunity not found or no longer accepting applications');
+    }
+
+    const opportunity = opportunityResult.rows[0];
+    
+    if (opportunity.deadline && new Date(opportunity.deadline) < new Date()) {
+      throw new Error('Application deadline has passed');
+    }
+
+    // Check for existing application
+    const existingApplication = await query(
+      'SELECT id FROM opportunity_applications WHERE opportunity_id = $1 AND student_id = $2',
+      [opportunityId, studentId]
+    );
+
+    if (existingApplication.rows.length > 0) {
+      throw new Error('You have already applied for this opportunity');
+    }
+
+    // Create application
+    const result = await query(
+      `INSERT INTO opportunity_applications (opportunity_id, student_id, cover_note, resume_url)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [opportunityId, studentId, coverNote || null, resumeUrl || null]
+    );
+
+    // Increment applications count
+    await query(
+      'UPDATE opportunities SET applications_count = applications_count + 1 WHERE id = $1',
+      [opportunityId]
+    );
+
+    return {
+      applicationId: result.rows[0].id,
+      status: result.rows[0].status,
+      createdAt: result.rows[0].created_at
+    };
+  }
+
+  // Get student's applications
+  async getStudentApplications(studentId, { page = 1, limit = 10 }) {
+    const offset = (page - 1) * limit;
+
+    const result = await query(
+      `SELECT 
+        oa.*,
+        o.title, o.type, o.company, o.deadline, o.is_active
+       FROM opportunity_applications oa
+       JOIN opportunities o ON oa.opportunity_id = o.id
+       WHERE oa.student_id = $1
+       ORDER BY oa.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [studentId, limit, offset]
+    );
+
+    return result.rows.map(row => ({
+      id: row.id,
+      status: row.status,
+      coverNote: row.cover_note,
+      createdAt: row.created_at,
+      opportunity: {
+        id: row.opportunity_id,
+        title: row.title,
+        type: row.type,
+        company: row.company,
+        deadline: row.deadline,
+        isActive: row.is_active
+      }
+    }));
+  }
+
+  // Format opportunity for response
+  formatOpportunity(opportunity) {
+    return {
+      id: opportunity.id,
+      alumniId: opportunity.alumni_id,
+      title: opportunity.title,
+      description: opportunity.description,
+      type: opportunity.type,
+      company: opportunity.company,
+      location: opportunity.location,
+      isRemote: opportunity.is_remote,
+      requiredSkills: opportunity.required_skills || [],
+      requiredDomains: opportunity.required_domains || [],
+      deadline: opportunity.deadline,
+      externalLink: opportunity.external_link,
+      isActive: opportunity.is_active,
+      viewsCount: opportunity.views_count,
+      applicationsCount: opportunity.applications_count,
+      createdAt: opportunity.created_at,
+      updatedAt: opportunity.updated_at
+    };
+  }
+}
+
+module.exports = new OpportunityService();
