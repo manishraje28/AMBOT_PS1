@@ -42,7 +42,17 @@ export function getInitials(firstName: string, lastName: string) {
 }
 
 export function getAvatarUrl(firstName: string, lastName: string, avatarUrl?: string) {
-  if (avatarUrl) return avatarUrl;
+  if (avatarUrl) {
+    // If it's a relative URL (local upload), prepend the base server URL
+    if (avatarUrl.startsWith('/uploads/')) {
+      // Remove /api suffix from the API URL to get the base server URL
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+      const baseUrl = apiUrl.replace(/\/api\/?$/, '');
+      return `${baseUrl}${avatarUrl}`;
+    }
+    // If it's an absolute URL, return as is
+    return avatarUrl;
+  }
   const initials = getInitials(firstName, lastName);
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(firstName + ' ' + lastName)}&background=e8b931&color=0f0f12&bold=true`;
 }

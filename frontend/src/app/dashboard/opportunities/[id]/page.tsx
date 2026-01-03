@@ -338,7 +338,7 @@ export default function OpportunityDetailPage() {
                           <img
                             src={getAvatarUrl(app.student.firstName, app.student.lastName, app.student.avatarUrl)}
                             alt={app.student.fullName}
-                            className="w-12 h-12 rounded-full"
+                            className="w-12 h-12 rounded-full object-cover"
                           />
 
                           {/* Info */}

@@ -139,10 +139,11 @@ export default function SessionsPage() {
                       <img
                         src={getAvatarUrl(
                           isStudent ? session.alumni?.firstName || '' : session.student?.firstName || '',
-                          isStudent ? session.alumni?.lastName || '' : session.student?.lastName || ''
+                          isStudent ? session.alumni?.lastName || '' : session.student?.lastName || '',
+                          isStudent ? session.alumni?.avatarUrl : session.student?.avatarUrl
                         )}
                         alt=""
-                        className="w-14 h-14 rounded-full"
+                        className="w-14 h-14 rounded-full object-cover"
                       />
                       <div className="flex-1">
                         <h3 className="font-medium text-text-primary">
@@ -222,10 +223,11 @@ export default function SessionsPage() {
                       <img
                         src={getAvatarUrl(
                           isStudent ? session.alumni?.firstName || '' : session.student?.firstName || '',
-                          isStudent ? session.alumni?.lastName || '' : session.student?.lastName || ''
+                          isStudent ? session.alumni?.lastName || '' : session.student?.lastName || '',
+                          isStudent ? session.alumni?.avatarUrl : session.student?.avatarUrl
                         )}
                         alt=""
-                        className="w-14 h-14 rounded-full"
+                        className="w-14 h-14 rounded-full object-cover"
                       />
                       <div className="flex-1">
                         <h3 className="font-medium text-text-primary">

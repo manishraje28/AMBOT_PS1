@@ -127,10 +127,11 @@ export default function DashboardPage() {
                   <img
                     src={getAvatarUrl(
                       isStudent ? session.alumni?.firstName || '' : session.student?.firstName || '',
-                      isStudent ? session.alumni?.lastName || '' : session.student?.lastName || ''
+                      isStudent ? session.alumni?.lastName || '' : session.student?.lastName || '',
+                      isStudent ? session.alumni?.avatarUrl : session.student?.avatarUrl
                     )}
                     alt=""
-                    className="w-12 h-12 rounded-full"
+                    className="w-12 h-12 rounded-full object-cover"
                   />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-text-primary truncate">
@@ -203,7 +204,7 @@ export default function DashboardPage() {
                     <img
                       src={getAvatarUrl(match.alumni.firstName, match.alumni.lastName, match.alumni.avatarUrl)}
                       alt=""
-                      className="w-12 h-12 rounded-full"
+                      className="w-12 h-12 rounded-full object-cover"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-text-primary truncate">

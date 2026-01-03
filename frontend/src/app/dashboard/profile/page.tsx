@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -16,6 +16,8 @@ import {
   Camera,
   Plus,
   X,
+  Trash2,
+  Upload,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { SKILL_OPTIONS, DOMAIN_OPTIONS, getAvatarUrl } from '@/lib/utils';
@@ -26,9 +28,11 @@ export default function ProfilePage() {
   const { user, refreshUser } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [activeTab, setActiveTab] = useState<'profile' | 'account'>('profile');
   const [profile, setProfile] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isStudent = user?.role === 'student';
   const isAlumni = user?.role === 'alumni';
@@ -60,6 +64,60 @@ export default function ProfilePage() {
       toast.error(error.response?.data?.error || 'Failed to update profile');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Please select a valid image file (JPEG, PNG, GIF, or WebP)');
+      return;
+    }
+
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size must be less than 5MB');
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const response = await api.uploadAvatar(file);
+      // Refresh user and profile to get updated avatar URL
+      await refreshUser();
+      // Also refetch profile to update local state
+      await fetchProfile();
+      toast.success('Profile picture updated successfully');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to upload profile picture');
+    } finally {
+      setUploadingAvatar(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!confirm('Are you sure you want to remove your profile picture?')) return;
+
+    setUploadingAvatar(true);
+    try {
+      await api.deleteAvatar();
+      // Refresh user and profile to update state
+      await refreshUser();
+      // Also refetch profile to update local state
+      await fetchProfile();
+      toast.success('Profile picture removed');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to remove profile picture');
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
@@ -96,14 +154,56 @@ export default function ProfilePage() {
     <div className="max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
-        <div className="relative">
+        <div className="relative group">
           <img
-            src={getAvatarUrl(user?.firstName || '', user?.lastName || '')}
+            src={getAvatarUrl(user?.firstName || '', user?.lastName || '', profile?.avatarUrl || user?.avatarUrl)}
             alt="Profile"
             className="w-20 h-20 rounded-2xl object-cover"
           />
-          <button className="absolute -bottom-2 -right-2 p-2 bg-accent-primary text-surface rounded-full hover:bg-accent-primary/90 transition-colors">
-            <Camera className="w-4 h-4" />
+          {/* Hidden file input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleAvatarUpload}
+            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+            className="hidden"
+          />
+          {/* Upload overlay */}
+          <div className="absolute inset-0 rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingAvatar}
+              className="p-2 bg-accent-primary text-surface rounded-full hover:bg-accent-primary/90 transition-colors disabled:opacity-50"
+              title="Upload new picture"
+            >
+              {uploadingAvatar ? (
+                <div className="w-4 h-4 border-2 border-surface border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Camera className="w-4 h-4" />
+              )}
+            </button>
+            {(profile?.avatarUrl || user?.avatarUrl) && (
+              <button
+                onClick={handleRemoveAvatar}
+                disabled={uploadingAvatar}
+                className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors disabled:opacity-50"
+                title="Remove picture"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {/* Upload button for mobile/touch devices */}
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingAvatar}
+            className="absolute -bottom-2 -right-2 p-2 bg-accent-primary text-surface rounded-full hover:bg-accent-primary/90 transition-colors md:hidden disabled:opacity-50"
+          >
+            {uploadingAvatar ? (
+              <div className="w-4 h-4 border-2 border-surface border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Camera className="w-4 h-4" />
+            )}
           </button>
         </div>
         <div>
@@ -111,6 +211,9 @@ export default function ProfilePage() {
             {user?.firstName} {user?.lastName}
           </h1>
           <p className="text-text-secondary capitalize">{user?.role}</p>
+          <p className="text-text-tertiary text-sm mt-1">
+            Click on the image to upload a new profile picture
+          </p>
         </div>
       </div>
 

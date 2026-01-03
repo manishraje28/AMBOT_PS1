@@ -272,6 +272,24 @@ class ApiClient {
     const response = await this.client.delete(`/notifications/${notificationId}`);
     return response.data;
   }
+
+  // Upload endpoints
+  async uploadAvatar(file: File) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    
+    const response = await this.client.post('/upload/avatar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  async deleteAvatar() {
+    const response = await this.client.delete('/upload/avatar');
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

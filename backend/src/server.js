@@ -14,6 +14,8 @@ const schedulingRoutes = require('./routes/scheduling.routes');
 const opportunityRoutes = require('./routes/opportunity.routes');
 const chatRoutes = require('./routes/chat.routes');
 const notificationRoutes = require('./routes/notification.routes');
+const uploadRoutes = require('./routes/upload.routes');
+const path = require('path');
 const { errorHandler, notFoundHandler } = require('./middleware/error.middleware');
 const { initializeDatabase } = require('./db/init');
 const chatService = require('./services/chat.service');
@@ -137,8 +139,11 @@ io.on('connection', (socket) => {
 app.set('io', io);
 app.set('connectedUsers', connectedUsers);
 
-// Security middleware
-app.use(helmet());
+// Security middleware - configure helmet to allow cross-origin images
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginEmbedderPolicy: false,
+}));
 
 // CORS configuration for REST API
 app.use(cors({
@@ -162,6 +167,9 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -179,6 +187,7 @@ app.use('/api/scheduling', schedulingRoutes);
 app.use('/api/opportunities', opportunityRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Error handling
 app.use(notFoundHandler);

@@ -17,6 +17,7 @@ import { useSocket } from '@/lib/socket';
 import { formatDistanceToNow } from 'date-fns';
 import clsx from 'clsx';
 import api from '@/lib/api';
+import { getAvatarUrl } from '@/lib/utils';
 
 export default function MessagesPage() {
   const { user } = useAuthStore();
@@ -140,19 +141,11 @@ export default function MessagesPage() {
                 >
                   {/* Avatar */}
                   <div className="relative">
-                    {conv.other_avatar_url ? (
-                      <img
-                        src={conv.other_avatar_url}
-                        alt=""
-                        className="w-12 h-12 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#e8b931] to-[#d4a82a] flex items-center justify-center">
-                        <span className="text-lg font-bold text-black">
-                          {conv.other_first_name[0]}{conv.other_last_name[0]}
-                        </span>
-                      </div>
-                    )}
+                    <img
+                      src={getAvatarUrl(conv.other_first_name, conv.other_last_name, conv.other_avatar_url)}
+                      alt=""
+                      className="w-12 h-12 rounded-full object-cover"
+                    />
                     {conv.unread_count > 0 && (
                       <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#e8b931] rounded-full flex items-center justify-center">
                         <span className="text-xs font-bold text-black">{conv.unread_count}</span>
@@ -209,19 +202,11 @@ export default function MessagesPage() {
                 <ArrowLeft className="w-5 h-5 text-white" />
               </button>
               
-              {selectedConversation.other_avatar_url ? (
-                <img
-                  src={selectedConversation.other_avatar_url}
-                  alt=""
-                  className="w-10 h-10 rounded-full object-cover"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#e8b931] to-[#d4a82a] flex items-center justify-center">
-                  <span className="text-sm font-bold text-black">
-                    {selectedConversation.other_first_name[0]}{selectedConversation.other_last_name[0]}
-                  </span>
-                </div>
-              )}
+              <img
+                src={getAvatarUrl(selectedConversation.other_first_name, selectedConversation.other_last_name, selectedConversation.other_avatar_url)}
+                alt=""
+                className="w-10 h-10 rounded-full object-cover"
+              />
               
               <div>
                 <h3 className="font-semibold text-white">
@@ -256,19 +241,11 @@ export default function MessagesPage() {
                   >
                     {/* Avatar */}
                     {showAvatar && !isOwn && (
-                      msg.sender_avatar_url ? (
-                        <img
-                          src={msg.sender_avatar_url}
-                          alt=""
-                          className="w-8 h-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#e8b931] to-[#d4a82a] flex items-center justify-center flex-shrink-0">
-                          <span className="text-xs font-bold text-black">
-                            {msg.sender_first_name[0]}{msg.sender_last_name[0]}
-                          </span>
-                        </div>
-                      )
+                      <img
+                        src={getAvatarUrl(msg.sender_first_name, msg.sender_last_name, msg.sender_avatar_url)}
+                        alt=""
+                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                      />
                     )}
                     {!showAvatar && !isOwn && <div className="w-8" />}
 

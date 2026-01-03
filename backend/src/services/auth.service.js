@@ -106,7 +106,7 @@ class AuthService {
   async login({ email, password }) {
     // Find user
     const result = await query(
-      `SELECT id, email, password_hash, role, first_name, last_name, is_active
+      `SELECT id, email, password_hash, role, first_name, last_name, avatar_url, is_active
        FROM users WHERE email = $1`,
       [email.toLowerCase()]
     );
@@ -143,7 +143,8 @@ class AuthService {
         email: user.email,
         role: user.role,
         firstName: user.first_name,
-        lastName: user.last_name
+        lastName: user.last_name,
+        avatarUrl: user.avatar_url
       },
       token
     };

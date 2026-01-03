@@ -187,8 +187,11 @@ export const useAuthStore = create<AuthState>()(
       refreshUser: async () => {
         try {
           const response = await api.getCurrentUser();
-          set({ user: response.data });
-          await get().loadProfile();
+          const profileResponse = await api.getProfile();
+          set({ 
+            user: response.data,
+            profile: profileResponse.data
+          });
         } catch (error) {
           console.error('Failed to refresh user:', error);
         }

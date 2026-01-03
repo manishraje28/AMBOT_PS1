@@ -157,7 +157,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <img
                 src={getAvatarUrl(user.firstName, user.lastName, user.avatarUrl)}
                 alt={`${user.firstName} ${user.lastName}`}
-                className="w-10 h-10 rounded-full"
+                className="w-10 h-10 rounded-full object-cover"
               />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-text-primary truncate">
@@ -300,7 +300,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <img
                   src={getAvatarUrl(user.firstName, user.lastName, user.avatarUrl)}
                   alt={`${user.firstName} ${user.lastName}`}
-                  className="w-8 h-8 rounded-full"
+                  className="w-8 h-8 rounded-full object-cover"
                 />
                 <span className="hidden sm:block text-sm font-medium">
                   {user.firstName}
