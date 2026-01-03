@@ -3,33 +3,48 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { authenticate } = require('../middleware/auth.middleware');
+const { authenticate, studentOnly } = require('../middleware/auth.middleware');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { query } = require('../config/database');
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../../uploads/avatars');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// Ensure uploads directories exist
+const avatarsDir = path.join(__dirname, '../../uploads/avatars');
+const resumesDir = path.join(__dirname, '../../uploads/resumes');
+
+if (!fs.existsSync(avatarsDir)) {
+  fs.mkdirSync(avatarsDir, { recursive: true });
+}
+if (!fs.existsSync(resumesDir)) {
+  fs.mkdirSync(resumesDir, { recursive: true });
 }
 
-// Configure multer storage
-const storage = multer.diskStorage({
+// Configure multer storage for avatars
+const avatarStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadsDir);
+    cb(null, avatarsDir);
   },
   filename: (req, file, cb) => {
-    // Generate unique filename with user ID and timestamp
     const uniqueSuffix = `${req.user.id}-${Date.now()}`;
     const ext = path.extname(file.originalname).toLowerCase();
     cb(null, `avatar-${uniqueSuffix}${ext}`);
   },
 });
 
-// File filter to only allow images
-const fileFilter = (req, file, cb) => {
+// Configure multer storage for resumes
+const resumeStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, resumesDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${req.user.id}-${Date.now()}`;
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `resume-${uniqueSuffix}${ext}`);
+  },
+});
+
+// File filter for images
+const imageFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-  
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
@@ -37,17 +52,31 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer upload
-const upload = multer({
-  storage,
-  fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB max file size
-  },
+// File filter for resumes (PDF only)
+const resumeFilter = (req, file, cb) => {
+  const allowedTypes = ['application/pdf'];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only PDF files are allowed for resumes.'), false);
+  }
+};
+
+// Configure multer uploads
+const uploadAvatar = multer({
+  storage: avatarStorage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
+
+const uploadResume = multer({
+  storage: resumeStorage,
+  fileFilter: resumeFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB for resumes
 });
 
 // POST /api/upload/avatar - Upload profile picture
-router.post('/avatar', authenticate, upload.single('avatar'), asyncHandler(async (req, res) => {
+router.post('/avatar', authenticate, uploadAvatar.single('avatar'), asyncHandler(async (req, res) => {
   if (!req.file) {
     return res.status(400).json({
       success: false,
@@ -100,6 +129,28 @@ router.delete('/avatar', authenticate, asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'Profile picture removed successfully',
+  });
+}));
+
+// POST /api/upload/resume - Upload resume (students only)
+router.post('/resume', authenticate, studentOnly, uploadResume.single('resume'), asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      error: 'No file uploaded',
+    });
+  }
+
+  // Generate the URL for the uploaded file
+  const resumeUrl = `/uploads/resumes/${req.file.filename}`;
+
+  res.json({
+    success: true,
+    message: 'Resume uploaded successfully',
+    data: {
+      resumeUrl,
+      filename: req.file.originalname,
+    },
   });
 }));
 

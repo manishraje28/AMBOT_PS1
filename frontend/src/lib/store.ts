@@ -675,3 +675,83 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     }));
   },
 }));
+
+// AI Chat Store
+export interface AIMessage {
+  id: string;
+  content: string;
+  isAI: boolean;
+  timestamp: Date;
+}
+
+interface AIState {
+  messages: AIMessage[];
+  isLoading: boolean;
+  isAvailable: boolean;
+  error: string | null;
+
+  checkAvailability: () => Promise<void>;
+  sendMessage: (message: string) => Promise<void>;
+  clearChat: () => void;
+}
+
+export const useAIStore = create<AIState>((set, get) => ({
+  messages: [],
+  isLoading: false,
+  isAvailable: false,
+  error: null,
+
+  checkAvailability: async () => {
+    try {
+      const response = await api.getAIStatus();
+      set({ isAvailable: response.data.available });
+    } catch (error) {
+      set({ isAvailable: false });
+    }
+  },
+
+  sendMessage: async (message: string) => {
+    const userMessage: AIMessage = {
+      id: `user-${Date.now()}`,
+      content: message,
+      isAI: false,
+      timestamp: new Date(),
+    };
+
+    set((state) => ({
+      messages: [...state.messages, userMessage],
+      isLoading: true,
+      error: null,
+    }));
+
+    try {
+      const chatHistory = get().messages.map((m) => ({
+        content: m.content,
+        isAI: m.isAI,
+      }));
+
+      const response = await api.chatWithAI(message, chatHistory);
+
+      const aiMessage: AIMessage = {
+        id: `ai-${Date.now()}`,
+        content: response.data.response,
+        isAI: true,
+        timestamp: new Date(),
+      };
+
+      set((state) => ({
+        messages: [...state.messages, aiMessage],
+        isLoading: false,
+      }));
+    } catch (error: any) {
+      set({
+        isLoading: false,
+        error: error.response?.data?.error || 'Failed to get AI response',
+      });
+    }
+  },
+
+  clearChat: () => {
+    set({ messages: [], error: null });
+  },
+}));

@@ -1,6 +1,7 @@
 const { query } = require('../config/database');
 const { OPPORTUNITY_TYPES, ROLES, PAGINATION } = require('../config/constants');
 const notificationService = require('./notification.service');
+const resumeService = require('./resume.service');
 
 class OpportunityService {
   // Create opportunity (alumni only)
@@ -273,7 +274,7 @@ class OpportunityService {
   async applyForOpportunity(opportunityId, studentId, { coverNote, resumeUrl }, app = null) {
     // Check opportunity exists and is active
     const opportunityResult = await query(
-      `SELECT o.id, o.deadline, o.title, o.alumni_id, 
+      `SELECT o.id, o.deadline, o.title, o.alumni_id, o.required_skills, o.required_domains,
               u.first_name as student_first_name, u.last_name as student_last_name
        FROM opportunities o
        JOIN users u ON u.id = $2
@@ -301,12 +302,48 @@ class OpportunityService {
       throw new Error('You have already applied for this opportunity');
     }
 
-    // Create application
+    // Analyze resume if provided
+    let compatibilityScore = null;
+    let skillAnalysis = null;
+
+    if (resumeUrl && resumeService.isAvailable()) {
+      try {
+        console.log('🔍 Analyzing resume:', resumeUrl);
+        console.log('📋 Required skills:', opportunity.required_skills);
+        console.log('📋 Required domains:', opportunity.required_domains);
+        
+        const analysis = await resumeService.analyzeResume(
+          resumeUrl,
+          opportunity.required_skills || [],
+          opportunity.required_domains || []
+        );
+        
+        console.log('✅ Resume analysis result:', JSON.stringify(analysis, null, 2));
+        
+        if (analysis.success) {
+          compatibilityScore = analysis.compatibilityScore;
+          skillAnalysis = {
+            matchedSkills: analysis.matchedSkills,
+            missingSkills: analysis.missingSkills,
+            additionalSkills: analysis.additionalSkills,
+            experienceLevel: analysis.experienceLevel,
+            summary: analysis.summary
+          };
+        }
+      } catch (analysisError) {
+        console.error('❌ Resume analysis failed:', analysisError.message);
+        // Continue without analysis if it fails
+      }
+    } else {
+      console.log('⚠️ Skipping resume analysis:', { resumeUrl, serviceAvailable: resumeService.isAvailable() });
+    }
+
+    // Create application with compatibility score
     const result = await query(
-      `INSERT INTO opportunity_applications (opportunity_id, student_id, cover_note, resume_url)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO opportunity_applications (opportunity_id, student_id, cover_note, resume_url, compatibility_score, skill_analysis)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [opportunityId, studentId, coverNote || null, resumeUrl || null]
+      [opportunityId, studentId, coverNote || null, resumeUrl || null, compatibilityScore, skillAnalysis ? JSON.stringify(skillAnalysis) : null]
     );
 
     // Increment applications count
@@ -342,6 +379,8 @@ class OpportunityService {
     return {
       applicationId: result.rows[0].id,
       status: result.rows[0].status,
+      compatibilityScore,
+      skillAnalysis,
       createdAt: result.rows[0].created_at
     };
   }
@@ -466,6 +505,8 @@ class OpportunityService {
         status: row.status,
         coverNote: row.cover_note,
         resumeUrl: row.resume_url,
+        compatibilityScore: row.compatibility_score,
+        skillAnalysis: row.skill_analysis,
         createdAt: row.created_at,
         student: {
           id: row.student_id,

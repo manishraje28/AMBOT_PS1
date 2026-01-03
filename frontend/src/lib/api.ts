@@ -290,6 +290,39 @@ class ApiClient {
     const response = await this.client.delete('/upload/avatar');
     return response.data;
   }
+
+  async uploadResume(file: File) {
+    const formData = new FormData();
+    formData.append('resume', file);
+    
+    const response = await this.client.post('/upload/resume', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  // AI endpoints
+  async getAIStatus() {
+    const response = await this.client.get('/ai/status');
+    return response.data;
+  }
+
+  async chatWithAI(message: string, chatHistory: Array<{ content: string; isAI: boolean }> = []) {
+    const response = await this.client.post('/ai/chat', { message, chatHistory });
+    return response.data;
+  }
+
+  async handleAIMention(message: string, conversationHistory: Array<{ content: string; senderName: string }> = []) {
+    const response = await this.client.post('/ai/mention', { message, conversationHistory });
+    return response.data;
+  }
+
+  async getAISuggestion(context: string, type: 'introduction' | 'follow-up' | 'thank-you' | 'application' | 'general' = 'general') {
+    const response = await this.client.post('/ai/suggest-message', { context, type });
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

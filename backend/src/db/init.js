@@ -112,6 +112,8 @@ async function initializeDatabase() {
       status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'reviewed', 'shortlisted', 'rejected', 'accepted')),
       cover_note TEXT,
       resume_url TEXT,
+      compatibility_score INTEGER DEFAULT NULL,
+      skill_analysis JSONB DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(opportunity_id, student_id)

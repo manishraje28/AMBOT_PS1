@@ -20,6 +20,10 @@ import {
   XCircle,
   Star,
   AlertCircle,
+  Upload,
+  FileText,
+  Loader2,
+  Percent,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { formatDate, getOpportunityTypeColor, getAvatarUrl } from '@/lib/utils';
@@ -31,6 +35,14 @@ interface Application {
   status: string;
   coverNote?: string;
   resumeUrl?: string;
+  compatibilityScore?: number;
+  skillAnalysis?: {
+    matchedSkills: string[];
+    missingSkills: string[];
+    additionalSkills: string[];
+    experienceLevel: string;
+    summary: string;
+  };
   createdAt: string;
   student: {
     id: string;
@@ -58,6 +70,9 @@ export default function OpportunityDetailPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loadingApplications, setLoadingApplications] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+  const [uploadingResume, setUploadingResume] = useState(false);
 
   const isStudent = user?.role === 'student';
   const isOwner = user?.role === 'alumni' && (opportunity?.alumni?.id === user?.id || opportunity?.alumniId === user?.id);
@@ -115,8 +130,15 @@ export default function OpportunityDetailPage() {
     try {
       console.log('Fetching applications for opportunity:', params.id);
       const response = await api.getOpportunityApplications(params.id as string);
-      console.log('Applications response:', response);
-      setApplications(response.data || response.applications || []);
+      console.log('Applications response full:', JSON.stringify(response, null, 2));
+      const apps = response.applications || response.data || [];
+      console.log('Parsed applications:', apps);
+      console.log('First app details:', apps[0] ? {
+        compatibilityScore: apps[0].compatibilityScore,
+        skillAnalysis: apps[0].skillAnalysis,
+        resumeUrl: apps[0].resumeUrl
+      } : 'No applications');
+      setApplications(apps);
     } catch (error: any) {
       console.error('Failed to fetch applications:', error.response?.data || error.message);
       setApplications([]);
@@ -139,16 +161,54 @@ export default function OpportunityDetailPage() {
     }
   };
 
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      toast.error('Please upload a PDF file');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size must be less than 10MB');
+      return;
+    }
+
+    setResumeFile(file);
+    setUploadingResume(true);
+
+    try {
+      const response = await api.uploadResume(file);
+      setResumeUrl(response.data.resumeUrl);
+      toast.success('Resume uploaded successfully');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to upload resume');
+      setResumeFile(null);
+    } finally {
+      setUploadingResume(false);
+    }
+  };
+
   const handleApply = async () => {
     if (opportunity.applicationLink) {
       window.open(opportunity.applicationLink, '_blank');
       return;
     }
 
+    if (!resumeUrl) {
+      toast.error('Please upload your resume to apply');
+      return;
+    }
+
     setApplying(true);
     try {
-      await api.applyToOpportunity(params.id as string, { message: applicationMessage });
-      toast.success('Application submitted successfully!');
+      await api.applyToOpportunity(params.id as string, { 
+        message: applicationMessage,
+        coverNote: applicationMessage,
+        resumeUrl: resumeUrl
+      });
+      toast.success('Application submitted! Your resume is being analyzed.');
       setHasApplied(true);
       setShowApplicationForm(false);
     } catch (error: any) {
@@ -335,11 +395,26 @@ export default function OpportunityDetailPage() {
                       >
                         <div className="flex items-start gap-4">
                           {/* Avatar */}
-                          <img
-                            src={getAvatarUrl(app.student.firstName, app.student.lastName, app.student.avatarUrl)}
-                            alt={app.student.fullName}
-                            className="w-12 h-12 rounded-full object-cover"
-                          />
+                          <div className="relative">
+                            <img
+                              src={getAvatarUrl(app.student.firstName, app.student.lastName, app.student.avatarUrl)}
+                              alt={app.student.fullName}
+                              className="w-12 h-12 rounded-full object-cover"
+                            />
+                            {/* Compatibility Score Badge */}
+                            {app.compatibilityScore !== null && app.compatibilityScore !== undefined && (
+                              <div 
+                                className={`absolute -bottom-1 -right-1 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 border-surface-100 ${
+                                  app.compatibilityScore >= 70 ? 'bg-green-500 text-white' :
+                                  app.compatibilityScore >= 40 ? 'bg-yellow-500 text-black' :
+                                  'bg-red-500 text-white'
+                                }`}
+                                title={`${app.compatibilityScore}% compatibility`}
+                              >
+                                {app.compatibilityScore}
+                              </div>
+                            )}
+                          </div>
 
                           {/* Info */}
                           <div className="flex-1 min-w-0">
@@ -374,6 +449,55 @@ export default function OpportunityDetailPage() {
                                   <span className="text-xs text-text-tertiary">+{app.student.skills.length - 5} more</span>
                                 )}
                               </div>
+                            )}
+
+                            {/* AI Skill Analysis */}
+                            {app.skillAnalysis && (
+                              <div className="mb-3 p-3 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 rounded-lg border border-purple-500/20">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Percent className="w-4 h-4 text-purple-400" />
+                                  <span className="text-sm font-medium text-purple-300">
+                                    AI Resume Analysis: {app.compatibilityScore}% Match
+                                  </span>
+                                </div>
+                                
+                                {app.skillAnalysis.matchedSkills?.length > 0 && (
+                                  <div className="mb-2">
+                                    <span className="text-xs text-green-400">Matched Skills: </span>
+                                    <span className="text-xs text-text-secondary">
+                                      {app.skillAnalysis.matchedSkills.join(', ')}
+                                    </span>
+                                  </div>
+                                )}
+                                
+                                {app.skillAnalysis.missingSkills?.length > 0 && (
+                                  <div className="mb-2">
+                                    <span className="text-xs text-red-400">Missing Skills: </span>
+                                    <span className="text-xs text-text-secondary">
+                                      {app.skillAnalysis.missingSkills.join(', ')}
+                                    </span>
+                                  </div>
+                                )}
+                                
+                                {app.skillAnalysis.summary && (
+                                  <p className="text-xs text-text-tertiary italic">
+                                    {app.skillAnalysis.summary}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Resume Link */}
+                            {app.resumeUrl && (
+                              <a
+                                href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}${app.resumeUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-accent-primary hover:underline mb-3"
+                              >
+                                <FileText className="w-3 h-3" />
+                                View Resume
+                              </a>
                             )}
 
                             {app.coverNote && (
@@ -494,25 +618,79 @@ export default function OpportunityDetailPage() {
                   </button>
                 ) : showApplicationForm ? (
                   <div className="space-y-4">
+                    {/* Resume Upload */}
                     <div>
-                      <label className="label">Application Message</label>
+                      <label className="label flex items-center gap-2">
+                        <FileText className="w-4 h-4" />
+                        Upload Resume (PDF) *
+                      </label>
+                      <div className="mt-2">
+                        {resumeFile ? (
+                          <div className="flex items-center justify-between p-3 bg-surface-100 rounded-lg border border-border">
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-5 h-5 text-accent-primary" />
+                              <span className="text-sm text-text-primary truncate max-w-[150px]">
+                                {resumeFile.name}
+                              </span>
+                            </div>
+                            {uploadingResume ? (
+                              <Loader2 className="w-4 h-4 text-accent-primary animate-spin" />
+                            ) : resumeUrl ? (
+                              <CheckCircle className="w-4 h-4 text-green-500" />
+                            ) : null}
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-accent-primary/50 transition-colors">
+                            <div className="flex flex-col items-center">
+                              <Upload className="w-6 h-6 text-text-tertiary mb-1" />
+                              <span className="text-sm text-text-tertiary">Click to upload PDF</span>
+                            </div>
+                            <input
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              onChange={handleResumeUpload}
+                              className="hidden"
+                            />
+                          </label>
+                        )}
+                      </div>
+                      <p className="text-xs text-text-tertiary mt-1">
+                        Your resume will be analyzed with AI to calculate compatibility score
+                      </p>
+                    </div>
+
+                    {/* Application Message */}
+                    <div>
+                      <label className="label">Cover Note (Optional)</label>
                       <textarea
                         value={applicationMessage}
                         onChange={(e) => setApplicationMessage(e.target.value)}
-                        className="input min-h-[120px] resize-none"
+                        className="input min-h-[100px] resize-none"
                         placeholder="Introduce yourself and explain why you're interested..."
                         maxLength={1000}
                       />
                     </div>
+
                     <button
                       onClick={handleApply}
-                      disabled={applying}
+                      disabled={applying || !resumeUrl || uploadingResume}
                       className="btn-primary w-full"
                     >
-                      {applying ? 'Submitting...' : 'Submit Application'}
+                      {applying ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Analyzing & Submitting...
+                        </>
+                      ) : (
+                        'Submit Application'
+                      )}
                     </button>
                     <button
-                      onClick={() => setShowApplicationForm(false)}
+                      onClick={() => {
+                        setShowApplicationForm(false);
+                        setResumeFile(null);
+                        setResumeUrl(null);
+                      }}
                       className="btn-ghost w-full"
                     >
                       Cancel
