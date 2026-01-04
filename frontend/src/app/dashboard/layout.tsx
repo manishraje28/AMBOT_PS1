@@ -86,7 +86,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
         { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
         { name: 'My Sessions', href: '/dashboard/sessions', icon: Calendar },
-        { name: 'My Opportunities', href: '/dashboard/opportunities', icon: Briefcase },
+        { name: 'Opportunites', href: '/dashboard/opportunities', icon: Briefcase },
         { name: 'Post Opportunity', href: '/dashboard/opportunities/new', icon: Plus },
         { name: 'Profile', href: '/dashboard/profile', icon: User },
       ];
@@ -116,8 +116,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           {/* Logo */}
           <div className="flex items-center justify-between p-6 border-b border-border">
             <Link href="/dashboard" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-accent-primary flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-surface" />
+              <div className="w-14 h-14 rounded-xl overflow-hidden">
+                <img src="/logo.png" alt="AlumNet" className="w-full h-full object-contain" />
               </div>
               <span className="font-display font-bold text-lg text-text-primary">AlumNet</span>
             </Link>

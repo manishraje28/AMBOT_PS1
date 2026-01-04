@@ -338,13 +338,29 @@ class OpportunityService {
       console.log('⚠️ Skipping resume analysis:', { resumeUrl, serviceAvailable: resumeService.isAvailable() });
     }
 
-    // Create application with compatibility score
-    const result = await query(
-      `INSERT INTO opportunity_applications (opportunity_id, student_id, cover_note, resume_url, compatibility_score, skill_analysis)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [opportunityId, studentId, coverNote || null, resumeUrl || null, compatibilityScore, skillAnalysis ? JSON.stringify(skillAnalysis) : null]
-    );
+    // Create application with compatibility score if DB supports columns, otherwise fall back
+    let result;
+    try {
+      result = await query(
+        `INSERT INTO opportunity_applications (opportunity_id, student_id, cover_note, resume_url, compatibility_score, skill_analysis)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [opportunityId, studentId, coverNote || null, resumeUrl || null, compatibilityScore, skillAnalysis ? JSON.stringify(skillAnalysis) : null]
+      );
+    } catch (insertError) {
+      // If compatibility columns don't exist, insert without them
+      if (insertError && /compatibility_score|skill_analysis/.test(insertError.message)) {
+        console.warn('Compatibility columns missing, falling back to basic insert:', insertError.message);
+        result = await query(
+          `INSERT INTO opportunity_applications (opportunity_id, student_id, cover_note, resume_url)
+           VALUES ($1, $2, $3, $4)
+           RETURNING *`,
+          [opportunityId, studentId, coverNote || null, resumeUrl || null]
+        );
+      } else {
+        throw insertError;
+      }
+    }
 
     // Increment applications count
     await query(

@@ -381,11 +381,11 @@ export default function HomePage() {
         <nav className="max-w-7xl mx-auto flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
             <motion.div 
-              className="w-10 h-10 rounded-xl bg-accent-primary flex items-center justify-center"
-              whileHover={{ rotate: 180 }}
+              className="w-14 h-14 rounded-xl overflow-hidden"
+              whileHover={{ scale: 1.05 }}
               transition={{ duration: 0.3 }}
             >
-              <Sparkles className="w-5 h-5 text-surface" />
+              <img src="/logo.png" alt="AlumNet" className="w-full h-full object-contain" />
             </motion.div>
             <span className="font-display font-bold text-xl text-text-primary group-hover:text-accent-primary transition-colors">
               AlumNet
@@ -660,8 +660,8 @@ export default function HomePage() {
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div>
               <Link href="/" className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-accent-primary flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-surface" />
+                <div className="w-12 h-12 rounded-lg overflow-hidden">
+                  <img src="/logo.png" alt="AlumNet" className="w-full h-full object-contain" />
                 </div>
                 <span className="font-display font-bold text-lg text-text-primary">AlumNet</span>
               </Link>

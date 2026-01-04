@@ -79,8 +79,8 @@ export default function LoginPage() {
         
         <div className="relative z-10 flex flex-col justify-center p-16">
           <Link href="/" className="flex items-center gap-3 mb-12">
-            <div className="w-12 h-12 rounded-xl bg-accent-primary flex items-center justify-center">
-              <Sparkles className="w-6 h-6 text-surface" />
+            <div className="w-16 h-16 rounded-xl overflow-hidden">
+              <img src="/logo.png" alt="AlumNet" className="w-full h-full object-contain" />
             </div>
             <span className="font-display font-bold text-2xl text-text-primary">AlumNet</span>
           </Link>
