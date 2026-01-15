@@ -592,6 +592,68 @@ class OpportunityService {
     return { success: true, status };
   }
 
+  // Re-analyze resume for an existing application
+  async reanalyzeApplication(applicationId, alumniId) {
+    // Get application and verify alumni owns the opportunity
+    const appResult = await query(
+      `SELECT oa.id, oa.resume_url, o.required_skills, o.required_domains, o.alumni_id
+       FROM opportunity_applications oa
+       JOIN opportunities o ON oa.opportunity_id = o.id
+       WHERE oa.id = $1`,
+      [applicationId]
+    );
+
+    if (appResult.rows.length === 0) {
+      throw new Error('Application not found');
+    }
+
+    const application = appResult.rows[0];
+
+    if (String(application.alumni_id) !== String(alumniId)) {
+      throw new Error('Not authorized to re-analyze this application');
+    }
+
+    if (!application.resume_url) {
+      throw new Error('No resume uploaded for this application');
+    }
+
+    if (!resumeService.isAvailable()) {
+      throw new Error('Resume analysis service is not available');
+    }
+
+    console.log('🔄 Re-analyzing resume:', application.resume_url);
+
+    const analysis = await resumeService.analyzeResume(
+      application.resume_url,
+      application.required_skills || [],
+      application.required_domains || []
+    );
+
+    console.log('✅ Re-analysis result:', JSON.stringify(analysis, null, 2));
+
+    if (analysis.success) {
+      const skillAnalysis = {
+        matchedSkills: analysis.matchedSkills,
+        missingSkills: analysis.missingSkills,
+        additionalSkills: analysis.additionalSkills,
+        experienceLevel: analysis.experienceLevel,
+        summary: analysis.summary
+      };
+
+      await query(
+        `UPDATE opportunity_applications SET compatibility_score = $1, skill_analysis = $2 WHERE id = $3`,
+        [analysis.compatibilityScore, JSON.stringify(skillAnalysis), applicationId]
+      );
+
+      return {
+        compatibilityScore: analysis.compatibilityScore,
+        skillAnalysis
+      };
+    }
+
+    throw new Error('Resume analysis failed');
+  }
+
   // Format opportunity for response
   formatOpportunity(opportunity) {
     return {

@@ -25,6 +25,20 @@ const notificationService = require('./services/notification.service');
 const app = express();
 const server = http.createServer(app);
 
+// Ensure uploads directories exist so static serving works even before any upload
+const uploadsDir = path.join(__dirname, '../uploads');
+const avatarsDir = path.join(uploadsDir, 'avatars');
+const resumesDir = path.join(uploadsDir, 'resumes');
+const fs = require('fs');
+try {
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+  if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true });
+  if (!fs.existsSync(resumesDir)) fs.mkdirSync(resumesDir, { recursive: true });
+  console.log('✅ Upload directories verified');
+} catch (err) {
+  console.error('❌ Failed to ensure upload directories:', err);
+}
+
 // Socket.IO setup
 const allowedOrigins = [
   'http://localhost:3000',

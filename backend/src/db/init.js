@@ -205,6 +205,25 @@ async function initializeDatabase() {
   }
 }
 
+// Ensure resume analysis columns exist for existing deployments
+async function ensureResumeAnalysisColumns() {
+  const alterSQL = `
+    ALTER TABLE opportunity_applications
+    ADD COLUMN IF NOT EXISTS compatibility_score INTEGER DEFAULT NULL;
+
+    ALTER TABLE opportunity_applications
+    ADD COLUMN IF NOT EXISTS skill_analysis JSONB DEFAULT NULL;
+  `;
+
+  try {
+    await query(alterSQL);
+    console.log('✅ Ensured resume analysis columns exist');
+  } catch (error) {
+    console.error('❌ Error ensuring resume analysis columns:', error);
+    throw error;
+  }
+}
+
 // Create update timestamp trigger function
 async function createTriggers() {
   const triggerSQL = `
@@ -255,5 +274,6 @@ async function createTriggers() {
 
 module.exports = { initializeDatabase: async () => {
   await initializeDatabase();
+  await ensureResumeAnalysisColumns();
   await createTriggers();
 }};

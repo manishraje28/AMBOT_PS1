@@ -5,13 +5,19 @@ const { ROLES, OPPORTUNITY_TYPES } = require('../config/constants');
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    const details = errors.array().map(err => ({
+      field: err.param || err.path,
+      message: err.msg
+    }));
+
+    // Log the validation errors server-side for easier debugging
+    console.error('Validation failed for', req.path, { body: req.body, errors: details });
+
+    const message = details.map(d => `${d.field}: ${d.message}`).join('; ');
     return res.status(400).json({
       success: false,
-      error: 'Validation failed',
-      details: errors.array().map(err => ({
-        field: err.path,
-        message: err.msg
-      }))
+      error: `Validation failed: ${message}`,
+      details
     });
   }
   next();

@@ -179,4 +179,18 @@ router.delete('/applications/:applicationId', authenticate, studentOnly, asyncHa
   });
 }));
 
+// POST /api/opportunities/applications/:applicationId/reanalyze - Re-analyze resume for an application (alumni only)
+router.post('/applications/:applicationId/reanalyze', authenticate, alumniOnly, asyncHandler(async (req, res) => {
+  const result = await opportunityService.reanalyzeApplication(
+    req.params.applicationId,
+    req.user.id
+  );
+
+  res.json({
+    success: true,
+    message: 'Resume re-analyzed successfully',
+    data: result
+  });
+}));
+
 module.exports = router;

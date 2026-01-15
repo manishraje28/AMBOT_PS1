@@ -1,29 +1,28 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
 class AIService {
   constructor() {
-    this.genAI = null;
-    this.model = null;
+    this.groq = null;
+    this.modelName = "llama3-70b-8192"; // High performance model
     this.isConfigured = false;
     
     this.initializeAI();
   }
 
   initializeAI() {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
     
     if (!apiKey) {
-      console.warn('⚠️ GEMINI_API_KEY not configured - AI features will not work');
+      console.warn('⚠️ GROQ_API_KEY not configured - AI features will not work');
       return;
     }
 
     try {
-      this.genAI = new GoogleGenerativeAI(apiKey);
-      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      this.groq = new Groq({ apiKey });
       this.isConfigured = true;
-      console.log('✅ Gemini AI initialized successfully');
+      console.log('✅ Groq AI initialized successfully');
     } catch (error) {
-      console.error('❌ Failed to initialize Gemini AI:', error.message);
+      console.error('❌ Failed to initialize Groq AI:', error.message);
     }
   }
 
@@ -84,45 +83,52 @@ NEVER write like this: **bold** or *italic* or # headers`;
   // Generate AI response
   async generateResponse(query, userContext = {}, conversationHistory = []) {
     if (!this.isConfigured) {
-      throw new Error('AI service is not configured. Please set GEMINI_API_KEY in environment variables.');
+      throw new Error('AI service is not configured. Please set GROQ_API_KEY in environment variables.');
     }
 
     try {
       const systemPrompt = this.getSystemPrompt(userContext);
       
       // Build conversation context
-      let contextMessages = '';
+      let messages = [
+        { role: "system", content: systemPrompt }
+      ];
+
+      // Add conversation history
       if (conversationHistory.length > 0) {
-        contextMessages = '\n\nRecent conversation context:\n' + 
-          conversationHistory.slice(-5).map(msg => 
-            `${msg.senderName}: ${msg.content}`
-          ).join('\n');
+        // Take last 5 messages and convert to Groq format
+        const historyMessages = conversationHistory.slice(-5).map(msg => ({
+          role: msg.senderId === userContext.userId ? "user" : "assistant",
+          content: msg.content
+        }));
+        messages = [...messages, ...historyMessages];
       }
 
-      const fullPrompt = `${systemPrompt}${contextMessages}\n\nUser's question: ${query}\n\nPlease provide a helpful response:`;
+      // Add current user query
+      messages.push({ role: "user", content: query });
 
-      const result = await this.model.generateContent(fullPrompt);
-      const response = await result.response;
-      const text = this.cleanResponse(response.text());
+      const completion = await this.groq.chat.completions.create({
+        messages: messages,
+        model: this.modelName,
+        temperature: 0.7,
+        max_tokens: 300, 
+        top_p: 1,
+      });
+
+      const responseText = completion.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
+      const cleanedText = this.cleanResponse(responseText);
 
       return {
         success: true,
-        response: text,
-        model: 'gemini-2.0-flash'
+        response: cleanedText,
+        model: this.modelName
       };
     } catch (error) {
       console.error('AI Generation Error:', error);
       
       // Handle specific error types
       if (error.message?.includes('API_KEY')) {
-        throw new Error('Invalid API key. Please check your Gemini API configuration.');
-      }
-      if (error.message?.includes('SAFETY')) {
-        return {
-          success: true,
-          response: "I apologize, but I can't provide a response to that query. Please try rephrasing your question or ask something else.",
-          model: 'gemini-2.0-flash'
-        };
+        throw new Error('Invalid API key. Please check your Groq API configuration.');
       }
       
       throw new Error('Failed to generate AI response. Please try again later.');

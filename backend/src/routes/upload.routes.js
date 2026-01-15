@@ -1,44 +1,30 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('../config/cloudinary');
 const { authenticate, studentOnly } = require('../middleware/auth.middleware');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { query } = require('../config/database');
 
-// Ensure uploads directories exist
-const avatarsDir = path.join(__dirname, '../../uploads/avatars');
-const resumesDir = path.join(__dirname, '../../uploads/resumes');
-
-if (!fs.existsSync(avatarsDir)) {
-  fs.mkdirSync(avatarsDir, { recursive: true });
-}
-if (!fs.existsSync(resumesDir)) {
-  fs.mkdirSync(resumesDir, { recursive: true });
-}
-
 // Configure multer storage for avatars
-const avatarStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, avatarsDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${req.user.id}-${Date.now()}`;
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `avatar-${uniqueSuffix}${ext}`);
+const avatarStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'ambot/avatars',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'gif'],
+    public_id: (req, file) => `avatar-${req.user.id}-${Date.now()}`,
   },
 });
 
 // Configure multer storage for resumes
-const resumeStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, resumesDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${req.user.id}-${Date.now()}`;
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `resume-${uniqueSuffix}${ext}`);
+const resumeStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'ambot/resumes',
+    resource_type: 'raw',
+    format: 'pdf',
+    public_id: (req, file) => `resume-${req.user.id}-${Date.now()}`,
   },
 });
 
@@ -84,8 +70,8 @@ router.post('/avatar', authenticate, uploadAvatar.single('avatar'), asyncHandler
     });
   }
 
-  // Generate the URL for the uploaded file
-  const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+  // Get the URL from Cloudinary response
+  const avatarUrl = req.file.path;
 
   // Update user's avatar_url in database
   await query(
@@ -109,16 +95,9 @@ router.delete('/avatar', authenticate, asyncHandler(async (req, res) => {
     'SELECT avatar_url FROM users WHERE id = $1',
     [req.user.id]
   );
-
-  const currentAvatarUrl = result.rows[0]?.avatar_url;
-
-  // Delete the file if it exists and is a local upload
-  if (currentAvatarUrl && currentAvatarUrl.startsWith('/uploads/')) {
-    const filePath = path.join(__dirname, '../..', currentAvatarUrl);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-  }
+  
+  // TODO: Add Cloudinary image deletion logic here if needed
+  // const currentAvatarUrl = result.rows[0]?.avatar_url;
 
   // Update user's avatar_url to null in database
   await query(
@@ -141,8 +120,8 @@ router.post('/resume', authenticate, studentOnly, uploadResume.single('resume'),
     });
   }
 
-  // Generate the URL for the uploaded file
-  const resumeUrl = `/uploads/resumes/${req.file.filename}`;
+  // Get the URL from Cloudinary response
+  const resumeUrl = req.file.path;
 
   res.json({
     success: true,

@@ -161,6 +161,20 @@ export default function OpportunityDetailPage() {
     }
   };
 
+  const handleReanalyze = async (applicationId: string) => {
+    setUpdatingStatus(applicationId);
+    try {
+      const result = await api.reanalyzeApplication(applicationId);
+      toast.success(`Resume re-analyzed: ${result.data?.compatibilityScore}% match`);
+      // Refresh applications to show updated analysis
+      fetchApplications();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to re-analyze resume');
+    } finally {
+      setUpdatingStatus(null);
+    }
+  };
+
   const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -487,17 +501,33 @@ export default function OpportunityDetailPage() {
                               </div>
                             )}
 
-                            {/* Resume Link */}
+                            {/* Resume Link and Re-analyze */}
                             {app.resumeUrl && (
-                              <a
-                                href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}${app.resumeUrl}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-accent-primary hover:underline mb-3"
-                              >
-                                <FileText className="w-3 h-3" />
-                                View Resume
-                              </a>
+                              <div className="flex items-center gap-3 mb-3">
+                                <a
+                                  href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:5000'}${app.resumeUrl}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs text-accent-primary hover:underline"
+                                >
+                                  <FileText className="w-3 h-3" />
+                                  View Resume
+                                </a>
+                                {!app.skillAnalysis && (
+                                  <button
+                                    onClick={() => handleReanalyze(app.id)}
+                                    disabled={updatingStatus === app.id}
+                                    className="inline-flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                                  >
+                                    {updatingStatus === app.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Percent className="w-3 h-3" />
+                                    )}
+                                    Analyze Resume
+                                  </button>
+                                )}
+                              </div>
                             )}
 
                             {app.coverNote && (

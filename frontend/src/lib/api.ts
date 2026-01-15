@@ -216,6 +216,11 @@ class ApiClient {
     return response.data;
   }
 
+  async reanalyzeApplication(applicationId: string) {
+    const response = await this.client.post(`/opportunities/applications/${applicationId}/reanalyze`);
+    return response.data;
+  }
+
   // Chat endpoints
   async getConversations() {
     const response = await this.client.get('/chat/conversations');

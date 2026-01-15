@@ -1,11 +1,12 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 class ResumeService {
   constructor() {
-    this.genAI = null;
-    this.model = null;
+    this.groq = null;
+    this.modelName = "llama3-70b-8192"; // Good for analysis
     this.isConfigured = false;
     this.PDFParseClass = null;
     
@@ -38,18 +39,17 @@ class ResumeService {
   }
 
   initializeAI() {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
     
     if (!apiKey) {
-      console.warn('⚠️ GEMINI_API_KEY not configured - Resume analysis will not work');
+      console.warn('⚠️ GROQ_API_KEY not configured - Resume analysis will not work');
       return;
     }
 
     try {
-      this.genAI = new GoogleGenerativeAI(apiKey);
-      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      this.groq = new Groq({ apiKey });
       this.isConfigured = true;
-      console.log('✅ Resume analysis service initialized');
+      console.log('✅ Resume analysis service initialized (Groq)');
     } catch (error) {
       console.error('❌ Failed to initialize resume analysis:', error.message);
     }
@@ -62,25 +62,38 @@ class ResumeService {
         throw new Error('PDF parser not available');
       }
 
-      // Remove leading slash to avoid path.join issues
-      const cleanPath = resumePath.startsWith('/') ? resumePath.substring(1) : resumePath;
-      const absolutePath = path.join(__dirname, '../..', cleanPath);
-      
-      console.log('📄 Extracting PDF from:', absolutePath);
-      
-      if (!fs.existsSync(absolutePath)) {
-        console.error('Resume file not found at:', absolutePath);
-        throw new Error('Resume file not found');
-      }
+      let dataBuffer;
 
-      const dataBuffer = fs.readFileSync(absolutePath);
+      // Check if resumePath is a URL (Cloudinary)
+      if (resumePath.startsWith('http://') || resumePath.startsWith('https://')) {
+        console.log('📄 Fetching PDF from URL:', resumePath);
+        const response = await axios.get(resumePath, {
+          responseType: 'arraybuffer'
+        });
+        dataBuffer = Buffer.from(response.data);
+      } else {
+        // Local file path
+        // Remove leading slash to avoid path.join issues
+        const cleanPath = resumePath.startsWith('/') ? resumePath.substring(1) : resumePath;
+        const absolutePath = path.join(__dirname, '../..', cleanPath);
+        
+        console.log('📄 Extracting PDF from:', absolutePath);
+        
+        if (!fs.existsSync(absolutePath)) {
+          console.error('Resume file not found at:', absolutePath);
+          throw new Error('Resume file not found');
+        }
+
+        dataBuffer = fs.readFileSync(absolutePath);
+      }
       
       let text = '';
       
       if (this.PDFParseClass) {
-        // New class-based API
+        // New class-based API (pdf-parse v2)
         const parser = new this.PDFParseClass({ data: dataBuffer });
         const result = await parser.getText();
+        await parser.destroy(); // Clean up resources
         text = result.text || '';
       } else if (this.pdfParseFunction) {
         // Old function-based API
@@ -139,9 +152,17 @@ Calculate compatibilityScore as:
 - Consider domain relevance
 - Max score is 100, min is 0`;
 
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
+      const completion = await this.groq.chat.completions.create({
+        messages: [
+          { role: "system", content: "You are a specialized resume analysis AI. Respond strictly in JSON." },
+          { role: "user", content: prompt }
+        ],
+        model: this.modelName,
+        temperature: 0.1, // Low temperature for consistent JSON
+        response_format: { type: "json_object" } // Enforce JSON response if supported, or rely on prompt
+      });
+
+      const text = completion.choices[0]?.message?.content || "{}";
 
       // Parse the JSON response
       let analysis;

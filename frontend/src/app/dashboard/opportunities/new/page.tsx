@@ -41,7 +41,7 @@ export default function NewOpportunityPage() {
 
     setIsSubmitting(true);
     try {
-      await api.createOpportunity({
+      const payload = {
         title: formData.title,
         description: formData.description,
         type: formData.type,
@@ -49,14 +49,22 @@ export default function NewOpportunityPage() {
         location: formData.location || undefined,
         isRemote: formData.isRemote,
         requiredSkills: formData.requiredSkills,
-        targetDomains: formData.targetDomains,
-        applicationDeadline: formData.applicationDeadline || undefined,
-        applicationLink: formData.applicationLink || undefined,
-      });
+        requiredDomains: formData.targetDomains,
+        deadline: formData.applicationDeadline || undefined,
+        externalLink: formData.applicationLink || undefined,
+      };
+      console.log('Sending opportunity payload:', payload);
+      await api.createOpportunity(payload);
       toast.success('Opportunity posted successfully!');
       router.push('/dashboard/opportunities');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to create opportunity');
+      console.error('Create opportunity error:', error.response?.data);
+      const details = error.response?.data?.details;
+      if (details && Array.isArray(details)) {
+        details.forEach((d: { field: string; message: string }) => toast.error(`${d.field}: ${d.message}`));
+      } else {
+        toast.error(error.response?.data?.error || 'Failed to create opportunity');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -138,8 +146,8 @@ export default function NewOpportunityPage() {
                 { value: 'job', label: 'Job' },
                 { value: 'internship', label: 'Internship' },
                 { value: 'project', label: 'Project' },
-                { value: 'event', label: 'Event' },
-                { value: 'other', label: 'Other' },
+                { value: 'referral', label: 'Referral' },
+                { value: 'mentorship', label: 'Mentorship' },
               ].map((type) => (
                 <button
                   key={type.value}
