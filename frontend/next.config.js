@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Explicit Turbopack root to avoid workspace root ambiguity during Vercel builds
+  turbopack: {
+    root: './',
+  },
   images: {
     remotePatterns: [
       {
