@@ -212,6 +212,17 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/ai', aiRoutes);
 
+// Backwards-compatible mounts for clients calling routes without the `/api` prefix
+app.use('/auth', authRoutes);
+app.use('/profile', profileRoutes);
+app.use('/matchmaking', matchmakingRoutes);
+app.use('/scheduling', schedulingRoutes);
+app.use('/opportunities', opportunityRoutes);
+app.use('/chat', chatRoutes);
+app.use('/notifications', notificationRoutes);
+app.use('/upload', uploadRoutes);
+app.use('/ai', aiRoutes);
+
 // Error handling
 app.use(notFoundHandler);
 app.use(errorHandler);
