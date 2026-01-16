@@ -40,12 +40,13 @@ try {
 }
 
 // Socket.IO setup
+// Support multiple frontend origins via `FRONTEND_URL` (comma-separated)
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
-  process.env.FRONTEND_URL
+  ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(s => s.trim()) : [])
 ].filter(Boolean);
 
 const io = new Server(server, {
@@ -166,6 +167,10 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    // Optionally allow any Vercel preview/app domain when enabled in env
+    if (process.env.ALLOW_VERCEL_PREVIEWS === 'true' && origin && origin.endsWith('.vercel.app')) {
       return callback(null, true);
     }
     return callback(null, false);
